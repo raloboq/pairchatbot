@@ -1,0 +1,50 @@
+{
+  "name": "pairchatbot",
+  "displayName": "PairChatBot",
+  "description": "A chatbot extension for pair programming assistance",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pairchatbot-sidebar",
+          "title": "PairChatBot",
+          "icon": "resources/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "pairchatbot-sidebar": [
+        {
+          "type": "webview",
+          "id": "pairchatbot.sidebarView",
+          "name": "PairChatBot"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "pairchatbot.mostrarPanel",
+        "title": "Show PairChatBot"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint"
+  },
+  "devDependencies": {
+    "@types/node": "16.x",
+    "@types/vscode": "^1.80.0",
+    "eslint": "^8.47.0",
+    "typescript": "^5.1.6"
+  }
+}
