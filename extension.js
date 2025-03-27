@@ -6,7 +6,7 @@ const vscode = require('vscode');
 function activate(context) {
     console.log('Activando extensión Leia - Programming Assistant');
 
-    const provider = new SidebarProvider(context.extensionUri);
+    const provider = new SidebarProvider(context.extensionUri, context.globalState);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider("pairchatbot.sidebarView", provider)
     );
@@ -15,10 +15,14 @@ function activate(context) {
 class SidebarProvider {
     /**
      * @param {vscode.Uri} _extensionUri
+     * @param {vscode.Memento} _globalState
      */
-    constructor(_extensionUri) {
+    constructor(_extensionUri, _globalState) {
         this._extensionUri = _extensionUri;
+        this._globalState = _globalState;
         this.API_URL = 'https://pairchatbot-api.vercel.app/api/chat';
+        // Dominios de correo permitidos
+        this.ALLOWED_DOMAINS = ['@konradlorenz.edu.co', '@unab.edu.co'];
     }
 
     /**
@@ -33,12 +37,30 @@ class SidebarProvider {
         };
 
         const nonce = this._getNonce();
-        webviewView.webview.html = this._getHtmlContent(webviewView.webview, nonce);
+        
+        // Verificar si el usuario ya está autenticado
+        const authenticatedEmail = this._globalState.get('authenticatedEmail');
+        
+        // Pasar el estado de autenticación al HTML
+        webviewView.webview.html = this._getHtmlContent(
+            webviewView.webview, 
+            nonce, 
+            !!authenticatedEmail, 
+            authenticatedEmail
+        );
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
             try {
-                if (message.type === 'SEND_MESSAGE') {
-                    await this._procesarMensaje(webviewView, message);
+                switch (message.type) {
+                    case 'VERIFY_EMAIL':
+                        await this._verificarEmail(webviewView, message.email);
+                        break;
+                    case 'LOGOUT':
+                        await this._logout(webviewView);
+                        break;
+                    case 'SEND_MESSAGE':
+                        await this._procesarMensaje(webviewView, message);
+                        break;
                 }
             } catch (error) {
                 console.error('Error procesando mensaje:', error);
@@ -50,45 +72,133 @@ class SidebarProvider {
     /**
      * @private
      * @param {vscode.WebviewView} webviewView
-     * @param {{ texto: string, incluirCodigo: boolean }} message
+     * @param {string} email
      */
-    async _procesarMensaje(webviewView, message) {
+    async _verificarEmail(webviewView, email) {
         try {
-            const requestData = {
-                message: message.texto
-            };
-
-            if (message.incluirCodigo === true && vscode.window.activeTextEditor) {
-                const codigo = vscode.window.activeTextEditor.document.getText();
-                if (codigo.trim()) {
-                    requestData.code = codigo;
-                }
+            // Verificar formato de correo
+            if (!this._validarFormatoEmail(email)) {
+                throw new Error('Formato de correo electrónico inválido');
             }
 
-            console.log('Enviando a la API:', requestData);
+            // Verificar dominio permitido
+            if (!this._validarDominioEmail(email)) {
+                throw new Error('Dominio de correo no autorizado. Solo se permiten correos de las universidades aliadas.');
+            }
 
-            const response = await fetch(this.API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestData)
+            // Guardar el email autenticado
+            await this._globalState.update('authenticatedEmail', email);
+
+            // Notificar al webview que la autenticación fue exitosa
+            webviewView.webview.postMessage({
+                type: 'AUTH_SUCCESS',
+                email: email
             });
 
-            if (!response.ok) {
-                throw new Error(`Error del servidor: ${response.status}`);
-            }
-
-            const data = await response.json();
-            
-            if (data && typeof data === 'object' && data !== null && 'response' in data && typeof data.response === 'string') {
-                this._enviarRespuesta(webviewView, data.response);
-            } else {
-                throw new Error('Respuesta inválida del servidor');
-            }
-
         } catch (error) {
-            throw new Error(`Error al procesar mensaje: ${error.message}`);
+            throw new Error(`Error al verificar email: ${error.message}`);
         }
     }
+
+    /**
+     * @private
+     * @param {vscode.WebviewView} webviewView
+     */
+    async _logout(webviewView) {
+        // Eliminar el email autenticado
+        await this._globalState.update('authenticatedEmail', undefined);
+        
+        // Notificar al webview que se cerró la sesión
+        webviewView.webview.postMessage({
+            type: 'LOGOUT_SUCCESS'
+        });
+    }
+
+    /**
+     * @private
+     * @param {string} email
+     * @returns {boolean}
+     */
+    _validarFormatoEmail(email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    }
+
+    /**
+     * @private
+     * @param {string} email
+     * @returns {boolean}
+     */
+    _validarDominioEmail(email) {
+        return this.ALLOWED_DOMAINS.some(domain => email.toLowerCase().endsWith(domain));
+    }
+
+    /**
+     * @private
+     * @param {vscode.WebviewView} webviewView
+     * @param {{ texto: string, incluirCodigo: boolean }} message
+     */
+    // Modifica el método _procesarMensaje para adaptar la estructura de datos
+async _procesarMensaje(webviewView, message) {
+    try {
+        // Verificar si el usuario está autenticado
+        const authenticatedEmail = this._globalState.get('authenticatedEmail');
+        if (!authenticatedEmail) {
+            throw new Error('No estás autenticado. Por favor, inicia sesión primero.');
+        }
+
+        // Modificamos la estructura para que coincida con lo que espera el servidor
+        const requestData = {
+            message: message.texto,
+            // El email ahora se enviará como metadato en el mensaje para que el servidor tenga la info
+            // pero no intentará procesarlo como un parámetro principal
+            metadata: {
+                userEmail: authenticatedEmail
+            }
+        };
+
+        if (message.incluirCodigo === true && vscode.window.activeTextEditor) {
+            const codigo = vscode.window.activeTextEditor.document.getText();
+            if (codigo.trim()) {
+                // Esta es la propiedad que el servidor espera
+                requestData.code = codigo;
+            }
+        }
+
+        console.log('Enviando a la API:', JSON.stringify(requestData, null, 2));
+
+        const response = await fetch(this.API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            // Intentar leer el cuerpo del error
+            let errorBody = '';
+            try {
+                errorBody = await response.text();
+                console.error('Cuerpo del error:', errorBody);
+            } catch (readError) {
+                console.error('No se pudo leer el cuerpo del error:', readError);
+            }
+            
+            throw new Error(`Error del servidor: ${response.status}. Detalles: ${errorBody}`);
+        }
+
+        const data = await response.json();
+        
+        if (data && typeof data === 'object' && data !== null && 'response' in data && typeof data.response === 'string') {
+            this._enviarRespuesta(webviewView, data.response);
+        } else {
+            throw new Error('Respuesta inválida del servidor');
+        }
+
+    } catch (error) {
+        console.error('Error completo:', error);
+        throw new Error(`Error al procesar mensaje: ${error.message}`);
+    }
+}
 
     /**
      * @private
@@ -131,8 +241,10 @@ class SidebarProvider {
      * @private
      * @param {vscode.Webview} webview
      * @param {string} nonce
+     * @param {boolean} isAuthenticated
+     * @param {string|undefined} authenticatedEmail
      */
-    _getHtmlContent(webview, nonce) {
+    _getHtmlContent(webview, nonce, isAuthenticated, authenticatedEmail) {
         // Obtener la ruta del recurso de la imagen
         const leiaImagePath = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'resources', 'leia.jpg'));
         
@@ -149,7 +261,7 @@ class SidebarProvider {
                     color: var(--vscode-foreground);
                     font-family: var(--vscode-font-family);
                 }
-                .chat-container {
+                .chat-container, .login-container {
                     display: flex;
                     flex-direction: column;
                     height: calc(100vh - 30px);
@@ -172,14 +284,16 @@ class SidebarProvider {
                     display: flex;
                     gap: 8px;
                 }
-                textarea {
+                textarea, input[type="email"] {
                     flex: 1;
-                    min-height: 60px;
-                    resize: vertical;
                     background: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
                     border: 1px solid var(--vscode-input-border);
                     padding: 8px;
+                }
+                textarea {
+                    min-height: 60px;
+                    resize: vertical;
                 }
                 .checkbox-container {
                     display: flex;
@@ -251,10 +365,96 @@ class SidebarProvider {
                     margin-bottom: 4px;
                     color: var(--vscode-button-background);
                 }
+                .login-container {
+                    justify-content: center;
+                    align-items: center;
+                    text-align: center;
+                }
+                .login-box {
+                    background: var(--vscode-editor-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 8px;
+                    padding: 20px;
+                    width: 100%;
+                    max-width: 400px;
+                }
+                .login-title {
+                    margin-bottom: 20px;
+                    color: var(--vscode-button-background);
+                }
+                .login-field {
+                    margin-bottom: 15px;
+                }
+                .login-label {
+                    display: block;
+                    margin-bottom: 5px;
+                    text-align: left;
+                }
+                .login-info {
+                    font-size: 0.9em;
+                    margin: 10px 0;
+                    opacity: 0.8;
+                }
+                .user-info {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 10px;
+                    background: var(--vscode-editor-background);
+                    padding: 8px;
+                    border-radius: 4px;
+                }
+                .user-email {
+                    font-size: 0.9em;
+                }
+                .logout-btn {
+                    font-size: 0.8em;
+                    padding: 4px 8px;
+                }
             </style>
         </head>
         <body>
-            <div class="chat-container">
+            ${!isAuthenticated ? `
+            <!-- Pantalla de login -->
+            <div class="login-container" id="loginContainer">
+                <div class="login-box">
+                    <div class="bot-container welcome-container">
+                        <div class="bot-profile">
+                            <img src="${leiaImagePath}" alt="Leia" class="bot-avatar">
+                        </div>
+                        <div class="bot-message-container">
+                            <div class="bot-name">Leia</div>
+                            <div class="message bot">
+                                ¡Hola! Soy Leia, tu asistente de programación. Para comenzar, por favor ingresa tu correo universitario.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="login-field">
+                        <label for="emailInput" class="login-label">Correo universitario:</label>
+                        <div class="input-container">
+                            <input type="email" id="emailInput" placeholder="digita tu correo" />
+                            <button class="button" id="loginBtn">Ingresar</button>
+                        </div>
+                    </div>
+                    
+                    <div class="login-info">
+                        Solo se permiten correos autorizados
+                    </div>
+                    
+                    <div id="loginError" class="error" style="display: none;"></div>
+                </div>
+            </div>
+            ` : ''}
+            
+            <!-- Pantalla del chat (oculta inicialmente si no está autenticado) -->
+            <div class="chat-container" id="chatContainer" style="${!isAuthenticated ? 'display: none;' : ''}">
+                <!-- Información del usuario -->
+                <div class="user-info">
+                    <div class="user-email">Conectado como: <strong id="userEmailDisplay">${authenticatedEmail || ''}</strong></div>
+                    <button class="button logout-btn" id="logoutBtn">Cerrar sesión</button>
+                </div>
+                
                 <div class="chat-messages" id="chatMessages">
                     <div class="bot-container welcome-container">
                         <div class="bot-profile">
@@ -291,11 +491,54 @@ Puedo ayudarte con:
             <script nonce="${nonce}">
                 (function() {
                     const vscode = acquireVsCodeApi();
+                    
+                    // Elementos del login
+                    const loginContainer = document.getElementById('loginContainer');
+                    const emailInput = document.getElementById('emailInput');
+                    const loginBtn = document.getElementById('loginBtn');
+                    const loginError = document.getElementById('loginError');
+                    
+                    // Elementos del chat
+                    const chatContainer = document.getElementById('chatContainer');
                     const chatMessages = document.getElementById('chatMessages');
                     const mensajeInput = document.getElementById('mensajeInput');
                     const incluirCodigoCheckbox = document.getElementById('incluirCodigo');
                     const enviarBtn = document.getElementById('enviarBtn');
-
+                    const userEmailDisplay = document.getElementById('userEmailDisplay');
+                    const logoutBtn = document.getElementById('logoutBtn');
+                    
+                    // Estado de autenticación inicial
+                    let isAuthenticated = ${isAuthenticated};
+                    
+                    // Función para verificar email
+                    function verificarEmail() {
+                        const email = emailInput.value.trim();
+                        if (!email) {
+                            mostrarErrorLogin('Por favor, ingresa tu correo universitario');
+                            return;
+                        }
+                        
+                        // Enviar al backend para validación
+                        vscode.postMessage({
+                            type: 'VERIFY_EMAIL',
+                            email: email
+                        });
+                    }
+                    
+                    // Función para cerrar sesión
+                    function logout() {
+                        vscode.postMessage({
+                            type: 'LOGOUT'
+                        });
+                    }
+                    
+                    // Función para mostrar error en login
+                    function mostrarErrorLogin(mensaje) {
+                        loginError.textContent = mensaje;
+                        loginError.style.display = 'block';
+                    }
+                    
+                    // Función para agregar mensaje al chat
                     async function agregarMensaje(texto, tipo) {
                         if (tipo === 'bot') {
                             const mensajes = texto.split('|');
@@ -368,25 +611,73 @@ Puedo ayudarte con:
 
                         mensajeInput.value = '';
                     }
-
-                    enviarBtn.addEventListener('click', enviarMensaje);
                     
-                    mensajeInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            enviarMensaje();
+                    // Event listeners para login
+                    if (loginBtn) {
+                        loginBtn.addEventListener('click', verificarEmail);
+                        
+                        if (emailInput) {
+                            emailInput.addEventListener('keypress', (e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    verificarEmail();
+                                }
+                            });
                         }
-                    });
+                    }
+                    
+                    // Event listeners para logout
+                    if (logoutBtn) {
+                        logoutBtn.addEventListener('click', logout);
+                    }
+                    
+                    // Event listeners para chat
+                    if (enviarBtn) {
+                        enviarBtn.addEventListener('click', enviarMensaje);
+                        
+                        //if (mensajeInput) {
+                        //    mensajeInput.addEventListener('keypress', (e) => {
+                        //        if (e.key === 'Enter' && !e.shiftKey) {
+                        //            e.preventDefault();
+                        //            enviarMensaje();
+                        //        }
+                        //    });
+                        //}
+                    }
 
+                    // Manejo de mensajes desde el extension host
                     window.addEventListener('message', event => {
                         const message = event.data;
                         
                         switch (message.type) {
+                            case 'AUTH_SUCCESS':
+                                isAuthenticated = true;
+                                if (loginContainer) loginContainer.style.display = 'none';
+                                chatContainer.style.display = 'flex';
+                                userEmailDisplay.textContent = message.email;
+                                break;
+                                
+                            case 'LOGOUT_SUCCESS':
+                                isAuthenticated = false;
+                                chatContainer.style.display = 'none';
+                                if (loginContainer) loginContainer.style.display = 'flex';
+                                if (emailInput) emailInput.value = '';
+                                if (loginError) {
+                                    loginError.textContent = '';
+                                    loginError.style.display = 'none';
+                                }
+                                break;
+                                
                             case 'BOT_RESPONSE':
                                 agregarMensaje(message.mensaje, 'bot');
                                 break;
+                                
                             case 'ERROR':
-                                mostrarError(message.mensaje);
+                                if (isAuthenticated) {
+                                    mostrarError(message.mensaje);
+                                } else {
+                                    mostrarErrorLogin(message.mensaje);
+                                }
                                 break;
                         }
                     });
