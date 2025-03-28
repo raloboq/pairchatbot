@@ -94,7 +94,7 @@ class PairProgrammingSession {
         this.navigator = null;
         this.sessionActive = false;
         this.turnStartTime = null;
-        this.turnDuration = 15 * 60 * 1000; // 15 minutos en milisegundos
+        this.turnDuration = 0.5 * 60 * 1000; // 15 minutos en milisegundos
         this.timer = null;
         this.sessionTasks = [];
         this.completedTasks = [];
@@ -651,25 +651,38 @@ class SidebarProvider {
                     color: var(--vscode-foreground);
                     font-family: var(--vscode-font-family);
                 }
-                .chat-container, .login-container {
+                .chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 15px;
+    box-sizing: border-box;
+}
+                .login-container {
                     display: flex;
                     flex-direction: column;
                     height: calc(100vh - 30px);
                     gap: 10px;
                 }
                 .chat-messages {
-                    flex: 1;
-                    overflow-y: auto;
-                    border: 1px solid var(--vscode-input-border);
-                    padding: 10px;
-                    margin-bottom: 10px;
-                    background: var(--vscode-input-background);
-                }
+    flex: 1;
+    min-height: 150px;
+    max-height: 40vh;
+    overflow-y: auto;
+    border: 1px solid var(--vscode-input-border);
+    padding: 10px;
+    margin-bottom: 10px;
+    background: var(--vscode-input-background);
+}
                 .input-section {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 8px;
-                }
+    position: sticky;
+    bottom: 0;
+    background: var(--vscode-editor-background);
+    padding: 10px 0;
+    z-index: 10;
+}
                 .input-container {
                     display: flex;
                     gap: 8px;
@@ -804,19 +817,50 @@ class SidebarProvider {
                 
                 /* Estilos para Pair Programming */
                 .pair-programming-container {
-                    margin-top: 20px;
-                    border-top: 1px solid var(--vscode-input-border);
-                    padding-top: 15px;
-                }
+    margin-top: 20px;
+    border-top: 1px solid var(--vscode-input-border);
+    padding-top: 15px;
+}
+
                 
                 .section-header {
-                    margin-bottom: 15px;
-                }
-                
-                .section-header h3 {
-                    margin: 0;
-                    color: var(--vscode-button-background);
-                }
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    cursor: pointer;
+}
+
+.section-header h3 {
+    margin: 0;
+    color: var(--vscode-button-background);
+}
+    .toggle-icon {
+    font-size: 18px;
+    transition: transform 0.3s ease;
+}
+
+.toggle-icon.collapsed {
+    transform: rotate(-90deg);
+}
+
+.pair-programming-content {
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    max-height: 1000px; /* Altura máxima cuando está expandido */
+}
+
+.pair-programming-content.collapsed {
+    max-height: 0;
+}
+
+/* Cuando el panel de pair programming está colapsado, permitir que el chat use más espacio */
+.pair-programming-content.collapsed ~ .chat-messages,
+.pair-programming-container.collapsed-container .chat-messages {
+    max-height: calc(80vh - 120px); /* Mayor altura cuando el panel está colapsado */
+}
+
+
                 
                 .session-status {
                     background: var(--vscode-editor-background);
@@ -1085,9 +1129,11 @@ Puedo ayudarte con:
                 
                 <!-- Sección de Pair Programming -->
                 <div class="pair-programming-container" id="pairProgrammingContainer">
-                    <div class="section-header">
-                        <h3>Pair Programming 👥</h3>
-                    </div>
+                    <div class="section-header" id="pairProgrammingHeader">
+        <h3>Pair Programming 👥</h3>
+        <span class="toggle-icon">▼</span>
+    </div>
+    <div class="pair-programming-content" id="pairProgrammingContent">
                     
                     <!-- Estado de la sesión (Visible cuando hay una sesión activa) -->
                     <div id="sessionStatus" class="session-status" style="display: none;">
@@ -1160,6 +1206,7 @@ Puedo ayudarte con:
                                 <span class="tip-text">Definan objetivos claros para la sesión usando las tareas.</span>
                             </div>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1323,11 +1370,63 @@ Puedo ayudarte con:
 
                     // Gestión de Pair Programming
                     // Elementos DOM para Pair Programming
+                    const pairProgrammingHeader = document.getElementById('pairProgrammingHeader');
+                    const pairProgrammingContent = document.getElementById('pairProgrammingContent');
+const toggleIcon = pairProgrammingHeader.querySelector('.toggle-icon');
                     const pairProgrammingContainer = document.getElementById('pairProgrammingContainer');
                     const sessionStatus = document.getElementById('sessionStatus');
                     const startSessionForm = document.getElementById('startSessionForm');
                     const taskManager = document.getElementById('taskManager');
                     const pairProgrammingGuide = document.getElementById('pairProgrammingGuide');
+
+                    // Estado inicial (podemos guardarlo en localStorage para mantenerlo entre sesiones)
+                    let isPairProgrammingCollapsed = localStorage.getItem('pairProgrammingCollapsed') === 'true';
+
+                    // Función para actualizar el estado visual
+function updatePairProgrammingCollapseState() {
+    if (isPairProgrammingCollapsed) {
+        pairProgrammingContent.classList.add('collapsed');
+        toggleIcon.classList.add('collapsed');
+        toggleIcon.textContent = '▶';
+    } else {
+        pairProgrammingContent.classList.remove('collapsed');
+        toggleIcon.classList.remove('collapsed');
+        toggleIcon.textContent = '▼';
+    }
+}
+
+// Inicializar estado
+updatePairProgrammingCollapseState();
+
+// Manejar el clic en el encabezado
+pairProgrammingHeader.addEventListener('click', function() {
+    isPairProgrammingCollapsed = !isPairProgrammingCollapsed;
+    
+    // Guardar preferencia
+    localStorage.setItem('pairProgrammingCollapsed', isPairProgrammingCollapsed);
+    
+    // Actualizar UI
+    updatePairProgrammingCollapseState();
+});
+
+// Función para mostrar/ocultar Pair Programming basado en el contexto
+function togglePairProgrammingVisibility(shouldShow) {
+    if (shouldShow) {
+        isPairProgrammingCollapsed = false;
+    } else {
+        isPairProgrammingCollapsed = true;
+    }
+    
+    updatePairProgrammingCollapseState();
+}
+
+// Opcional: Colapsar automáticamente cuando se inicia una sesión
+function onSessionChange(isActive) {
+    // Si una sesión se inicia, expandir la sección si estaba colapsada
+    if (isActive && isPairProgrammingCollapsed) {
+        togglePairProgrammingVisibility(true);
+    }
+}
                     
                     // Elementos para estado de sesión
                     const timerDisplay = document.getElementById('timerDisplay');
