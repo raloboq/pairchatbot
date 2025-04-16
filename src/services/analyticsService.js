@@ -147,7 +147,7 @@ async function syncEvents(context) {
         const response = await fetch(ANALYTICS_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 
-                'X-API-Key': 'Lupillo07!'  // Añade esta línea
+//                'X-API-Key': 'Lupillo07!'  // Añade esta línea
             },
             body: JSON.stringify({ events: eventsToSync })
         });

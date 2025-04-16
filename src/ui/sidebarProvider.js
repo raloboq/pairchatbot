@@ -1,6 +1,6 @@
 const vscode = require('vscode');
 const { PairProgrammingSession } = require('../models/pairSession');
-const { getWebviewContent } = require('./webViewContent');
+const { getWebviewContent } = require('./WebviewContent');
 const { validateEmail } = require('../utils/validators');
 const { sendChatRequest } = require('../services/apiService');
 const { formatMessage } = require('./messageFormater');
