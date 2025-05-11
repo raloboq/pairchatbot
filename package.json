@@ -2,7 +2,7 @@
   "name": "Leiabot",
   "displayName": "Leia asistente de programación Pair Programming",
   "description": "A chatbot extension for pair programming assistance",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/raloboq/pairchatbot.git"
@@ -38,8 +38,39 @@
       {
         "command": "pairchatbot.mostrarPanel",
         "title": "Show PairChatBot"
+      },
+      {
+        "command": "pairchatbot.captureCodeSnapshot",
+        "title": "Leia: Capturar Instantánea de Código"
+      },
+      {
+        "command": "pairchatbot.configureSnapshotInterval",
+        "title": "Leia: Configurar Intervalo de Captura de Código"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "pairchatbot.captureCodeSnapshot",
+          "group": "leia"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Leia",
+      "properties": {
+        "leia.codeSnapshotEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Habilitar captura periódica automática de código"
+        },
+        "leia.codeSnapshotInterval": {
+          "type": "number",
+          "default": 5,
+          "description": "Intervalo en minutos para captura automática de código"
+        }
+      }
+    }
   },
   "scripts": {
     "lint": "eslint .",
