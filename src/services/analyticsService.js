@@ -7,7 +7,8 @@ const { info, error, debug } = require('../utils/logger');
 const { classifyQuery, EventTypes } = require('../models/analyticsModel');
 
 // URL del servicio de analytics (reemplazar con la URL real cuando esté disponible)
-const ANALYTICS_API_URL = 'http://37.27.189.148:80/api/analytics';
+//const ANALYTICS_API_URL = 'http://37.27.189.148:80/api/analytics';
+const ANALYTICS_API_URL = 'https://ktps.renelobo.com/api/analytics';
 
 // Almacenamiento local para eventos pendientes de envío
 let pendingEvents = [];
@@ -213,6 +214,32 @@ function trackChatInteraction(messageType, messageContent, includedCode, context
         message_type: messageType,
         message_length: messageContent.length,
         included_code: includedCode || false,
+        timestamp: new Date().toISOString(),
+        // Add the full message content to be sent to the analytics service
+        message_content: messageContent
+    };
+    
+    // Si es una consulta del usuario, clasificarla
+    if (messageType === 'user_query') {
+        eventData.query_category = classifyQuery(messageContent);
+    }
+    
+    // Log para depuración
+    debug(`Registrando interacción de chat: ${messageType}`);
+    
+    // Track usando el tipo de evento CHAT_INTERACTION
+    trackEvent('CHAT_INTERACTION', eventData, context);
+    
+    // Forzar sincronización para interacciones de chat
+    syncEvents(context).catch(err => 
+        error(`Error al sincronizar después de interacción de chat: ${err.message}`)
+    );
+}
+/*function trackChatInteraction(messageType, messageContent, includedCode, context) {
+    const eventData = {
+        message_type: messageType,
+        message_length: messageContent.length,
+        included_code: includedCode || false,
         timestamp: new Date().toISOString()
     };
     
@@ -231,7 +258,7 @@ function trackChatInteraction(messageType, messageContent, includedCode, context
    syncEvents(context).catch(err => 
        error(`Error al sincronizar después de interacción de chat: ${err.message}`)
    );
-}
+}*/
 
 /**
  * Registra eventos de sesiones de pair programming

@@ -366,7 +366,89 @@ class SidebarProvider {
      * @param {vscode.WebviewView} webviewView
      * @param {{ texto: string, incluirCodigo: boolean }} message
      */
-    async _procesarMensaje(webviewView, message) {
+async _procesarMensaje(webviewView, message) {
+    try {
+        // Verificar si el usuario está autenticado
+        const authenticatedEmail = this._globalState.get('authenticatedEmail');
+        if (!authenticatedEmail) {
+            throw new Error('No estás autenticado. Por favor, inicia sesión primero.');
+        }
+
+        let codigo = '';
+        let lenguaje = '';
+        
+        if (message.incluirCodigo === true && vscode.window.activeTextEditor) {
+            codigo = vscode.window.activeTextEditor.document.getText();
+            lenguaje = vscode.window.activeTextEditor.document.languageId || 'unknown';
+            
+            // Analizar código para métricas y problemas potenciales
+            const codeMetrics = analyzeCode(codigo, lenguaje, this._context);
+            const codeIssues = detectCodeIssues(codigo, lenguaje, this._context);
+            
+            // Registrar resultados del análisis
+            trackEvent('CODE_ANALYSIS_RESULT', {
+                language: lenguaje,
+                metrics: codeMetrics,
+                issues_count: codeIssues.length,
+                issues_summary: codeIssues.map(issue => issue.type),
+                timestamp: new Date().toISOString()
+            }, this._context);
+        }
+        
+        // Registrar evento de consulta del usuario con el mensaje completo
+        trackChatInteraction('user_query', message.texto, !!codigo, this._context);
+
+        const startTime = Date.now();
+        
+        const response = await sendChatRequest({
+            message: message.texto,
+            code: codigo || undefined,
+            metadata: {
+                userEmail: authenticatedEmail,
+                pairProgramming: this.pairSession.sessionActive ? {
+                    isActive: true,
+                    driver: this.pairSession.driver,
+                    navigator: this.pairSession.navigator
+                } : {
+                    isActive: false
+                }
+            }
+        });
+
+        const responseTime = Date.now() - startTime;
+
+        if (response && typeof response === 'object' && response !== null && 'response' in response) {
+            // Registrar evento de respuesta con el contenido completo
+            trackChatInteraction('bot_response', response.response, false, this._context);
+            
+            // Registrar tiempo de respuesta
+            trackEvent('API_RESPONSE_TIME', {
+                endpoint: 'chat',
+                response_time_ms: responseTime,
+                status: 'success'
+            }, this._context);
+            
+            // Formatear el mensaje para resaltar código, etc.
+            const formattedMessage = formatMessage(response.response);
+            this._enviarRespuesta(webviewView, formattedMessage);
+        } else {
+            throw new Error('Respuesta inválida del servidor');
+        }
+
+    } catch (error) {
+        console.error('Error completo:', error);
+        
+        // Registrar error
+        trackEvent('API_ERROR', {
+            endpoint: 'chat',
+            error_message: error.message,
+            timestamp: new Date().toISOString()
+        }, this._context);
+        
+        throw new Error(`Error al procesar mensaje: ${error.message}`);
+    }
+}
+    /*async   _procesarMensaje(webviewView, message) {
         try {
             // Verificar si el usuario está autenticado
             const authenticatedEmail = this._globalState.get('authenticatedEmail');
@@ -447,7 +529,7 @@ class SidebarProvider {
             
             throw new Error(`Error al procesar mensaje: ${error.message}`);
         }
-    }
+    }*/
 
     /**
      * @private
