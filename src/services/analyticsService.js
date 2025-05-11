@@ -221,7 +221,16 @@ function trackChatInteraction(messageType, messageContent, includedCode, context
         eventData.query_category = classifyQuery(messageContent);
     }
     
-    trackEvent('CHAT_INTERACTION', eventData, context);
+   // Log para depuración
+   debug(`Registrando interacción de chat: ${messageType}`);
+    
+   // Track usando el tipo de evento CHAT_INTERACTION
+   trackEvent('CHAT_INTERACTION', eventData, context);
+   
+   // Forzar sincronización para interacciones de chat
+   syncEvents(context).catch(err => 
+       error(`Error al sincronizar después de interacción de chat: ${err.message}`)
+   );
 }
 
 /**
