@@ -2,7 +2,7 @@
   "name": "Leiabot",
   "displayName": "Leia asistente de programación Pair Programming",
   "description": "A chatbot extension for pair programming assistance",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "repository": {
     "type": "git",
     "url": "https://github.com/raloboq/pairchatbot.git"

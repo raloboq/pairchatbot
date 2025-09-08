@@ -563,7 +563,7 @@ Puedo ayudarte con:
                     <div class="guide-tips">
                         <div class="guide-tip">
                             <span class="tip-icon">💡</span>
-                            <span class="tip-text">Cambien roles cada 15 minutos para mantener la participación equilibrada.</span>
+                            <span class="tip-text">Cambien roles cada 10 minutos para mantener la participación equilibrada.</span>
                         </div>
                         <div class="guide-tip">
                             <span class="tip-icon">🔍</span>

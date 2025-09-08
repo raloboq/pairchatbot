@@ -99,7 +99,8 @@ async function captureCodeSnapshot(context) {
             } : null
         };
         
-        // Registrar evento con contenido del código
+        // MODIFICADO: Estructurar los datos según lo que espera el servidor
+        // Registrar evento con contenido del código y metadatos en la estructura correcta
         trackEvent('CODE_SNAPSHOT', {
             metadata: snapshotMetadata,
             code_content: codeContent

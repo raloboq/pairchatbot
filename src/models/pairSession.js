@@ -7,7 +7,7 @@ class PairProgrammingSession {
         this.navigator = null;
         this.sessionActive = false;
         this.turnStartTime = null;
-        this.turnDuration = 15 * 60 * 1000; // 15 minutos en milisegundos
+        this.turnDuration = 10 * 60 * 1000; // 15 minutos en milisegundos
         this.timer = null;
         this.sessionTasks = [];
         this.completedTasks = [];
