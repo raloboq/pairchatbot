@@ -6,7 +6,8 @@
  * @param {Object} leiaImagePath - Uri a la imagen del avatar de Leia
  * @returns {string} - Contenido HTML para el webview
  */
-function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, leiaImagePath) {
+function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
+leiaImagePath) {
 
     return `<!DOCTYPE html>
     <html lang="es">
@@ -34,33 +35,23 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                 color: var(--fg);
                 background: var(--bg);
             }
-            /* Container principal */
+            /* Container principal - ahora solo el panel izquierdo ocupa todo el ancho */
             .root {
                 display: flex;
                 height: 100vh;
                 width: 100%;
                 box-sizing: border-box;
             }
-            /* --- Panel izquierdo (UI / login / chat) --- */
+            /* --- Panel principal (antes izquierdo, ahora ocupa todo) --- */
             .left-panel {
-                width: 380px; /* ancho aproximado del mockup */
+                width: 100%; /* Cambio: ahora ocupa todo el ancho disponible */
                 min-width: 320px;
-                max-width: 420px;
-                border-right: 1px solid var(--input-border);
                 box-sizing: border-box;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
                 padding: 16px;
                 gap: 12px;
-            }
-
-            /* --- Panel derecho (preview grande) --- */
-            .right-panel {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
             }
 
             /* ---------- LOGIN (mockup) ---------- */
@@ -152,6 +143,7 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                 display:none;
                 padding: 8px 0 12px 0;
                 overflow: auto;
+                flex: 0 0 auto; /* Cambio: no crece, mantiene su tamaño */
             }
             .tab-content.active {
                 display:block;
@@ -243,20 +235,22 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
 
             .completed-task { opacity:0.7; text-decoration: line-through; }
 
-            /* ---------- CHAT (SIEMPRE ABAJO) ---------- */
+            /* ---------- CHAT - Cambio principal: ahora ocupa el espacio restante ---------- */
             .chat-area {
-                margin-top: auto; /* empuja hacia abajo dentro left-panel */
                 display:flex;
                 flex-direction:column;
                 gap:8px;
+                flex: 1; /* Cambio: ocupa todo el espacio restante */
+                min-height: 0; /* Cambio: permite que se contraiga si es necesario */
             }
             .chat-messages {
-                max-height: 300px;
+                flex: 1; /* Cambio: ocupa el espacio disponible en lugar de max-height fijo */
                 overflow:auto;
                 background: var(--input-bg);
                 border: 1px solid var(--input-border);
                 padding: 10px;
                 border-radius: 8px;
+                min-height: 200px; /* Cambio: altura mínima para garantizar usabilidad */
             }
             .message { margin-bottom:8px; padding:8px; border-radius:6px; white-space: pre-wrap; }
             .message.bot { background: rgba(255,255,255,0.03); }
@@ -267,6 +261,7 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                 gap:8px;
                 align-items:center;
                 margin-top:6px;
+                flex: 0 0 auto; /* Cambio: no crece, mantiene su tamaño */
             }
             textarea {
                 flex:1;
@@ -285,6 +280,7 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                 align-items:center;
                 gap:8px;
                 margin-top:6px;
+                flex: 0 0 auto; /* Cambio: no crece, mantiene su tamaño */
             }
 
             /* notification */
@@ -306,7 +302,7 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
     </head>
     <body>
         <div class="root">
-            <!-- Left column: login/chat/panels -->
+            <!-- Panel principal: ocupa todo el ancho disponible -->
             <div class="left-panel">
                 <!-- LOGIN SCREEN (mockup) -->
                 ${!isAuthenticated ? `
@@ -334,12 +330,12 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                         <label class="login-label" for="studentEmailInput">Ingresa correo estudiantil</label>
                         <div class="login-row">
                             <input id="studentEmailInput" type="email" placeholder="usuario@universidad.edu" />
-                            <button id="nextBtn" class="small-btn">» Siguiente »</button>
+                            <button id="nextBtn" class="small-btn">Siguiente</button>
                         </div>
                     </div>
 
                     <div id="navigatorField" class="login-field hidden">
-                        <label class="login-label" for="navigatorEmailInput">Ingresa el correo del Navegante</label>
+                        <label class="login-label" for="navigatorEmailInput">Ingresa el correo del navegante</label>
                         <div class="login-row">
                             <input id="navigatorEmailInput" type="email" placeholder="navegante@universidad.edu" />
                             <button id="startLoginBtn" class="small-btn">Iniciar Sesión</button>
@@ -407,22 +403,6 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                                         <button id="startSessionBtn" class="small-btn">Iniciar sesión de Pair Programming</button>
                                     </div>
                                 </div>
-
-                                <!-- Guía -->
-                                <div id="pairProgrammingGuide" class="pair-programming-guide hidden" style="margin-top:12px;">
-                                    <div class="guide-header"><strong>Recordatorio de roles</strong></div>
-                                    <div class="guide-content">
-                                        <p><strong>Piloto (Driver):</strong> Controla el teclado y escribe el código.</p>
-                                        <p><strong>Navegante (Navigator):</strong> Revisa el código y sugiere mejoras.</p>
-                                        <div style="margin-top:8px;">
-                                            <ul>
-                                                <li>💡 Cambien roles cada 10-15 minutos para mantener la participación equilibrada.</li>
-                                                <li>🔍 El Navegante debe cuestionar decisiones y sugerir alternativas.</li>
-                                                <li>🎯 Definan objetivos claros para la sesión usando las tareas.</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
                             </div> <!-- pairProgrammingContent -->
                         </div>
                     </div>
@@ -449,7 +429,7 @@ function getWebviewContent(webview, nonce, isAuthenticated, authenticatedEmail, 
                         </div>
                     </div>
 
-                    <!-- CHAT - siempre abajo -->
+                    <!-- CHAT - ahora ocupa el espacio restante -->
                     <div class="chat-area">
                         <div class="chat-messages" id="chatMessages">
                             <div class="bot-container welcome-container">
@@ -483,19 +463,6 @@ Puedo ayudarte con:
                     </div>
                 </div> <!-- appScreen -->
             </div> <!-- left-panel -->
-
-            <!-- Right column: grande (preview/editor mockup) -->
-            <div class="right-panel">
-                <div style="padding:12px; border-bottom:1px solid var(--input-border);">
-                    <div style="display:inline-block; background:var(--input-bg); padding:6px 10px; border-radius:4px;">Welcome</div>
-                </div>
-                <div style="flex:1; display:flex; align-items:flex-start; justify-content:center; background:#000; color:#fff; padding:28px;">
-                    <div>
-                        <h1 style="margin:0; font-size:48px;">Visual Studio Code</h1>
-                        <p style="margin-top:8px; color:rgba(255,255,255,0.7);">Editing evolved</p>
-                    </div>
-                </div>
-            </div> <!-- right-panel -->
         </div> <!-- root -->
 
         <script nonce="${nonce}">
@@ -557,7 +524,12 @@ Puedo ayudarte con:
                 let completedTasks = [];
                 let timerInterval = null;
 
-                /* ---------------------- LOGIN FLOW (mockup) ---------------------- */
+                /* ---------------------- LOGIN FLOW (mejorado) ---------------------- */
+                function resetLoginButtons() {
+                    if (nextBtn) { nextBtn.disabled = false; nextBtn.textContent = ' Siguiente '; nextBtn.style.display = ''; }
+                    if (startLoginBtn) { startLoginBtn.disabled = false; startLoginBtn.textContent = 'Iniciar Sesión'; }
+                }
+
                 if (nextBtn) {
                     nextBtn.addEventListener('click', function() {
                         const email = (studentEmailInput && studentEmailInput.value || '').trim();
@@ -565,9 +537,17 @@ Puedo ayudarte con:
                             showLoginError('Por favor ingresa tu correo estudiantil');
                             return;
                         }
-                        // mostramos campo del navegante
-                        navigatorField.classList.remove('hidden');
-                        // opcional: guardar email temporal en UI (no hacemos auth real aquí)
+
+                        // enviar al host para validar formato y dominio
+                        vscode.postMessage({
+                            type: 'VERIFY_EMAIL',
+                            email: email
+                        });
+
+                        // mostrar loading UI localmente
+                        nextBtn.disabled = true;
+                        nextBtn.textContent = 'Validando...';
+                        if (loginError) { loginError.style.display = 'none'; loginError.textContent = ''; }
                     });
                 }
 
@@ -583,21 +563,17 @@ Puedo ayudarte con:
                             showLoginError('Por favor ingresa el correo del navegante');
                             return;
                         }
-                        // Mandamos mensaje al host indicando que el login fue exitoso (tu extension puede validar real)
+
+                        // enviar comando para iniciar session de Pair Programming
                         vscode.postMessage({
-                            type: 'AUTH_SUCCESS',
-                            email: student,
-                            navigator: navigator
+                            type: 'PP_COMANDO',
+                            comando: 'INICIAR_SESION',
+                            params: { navigatorEmail: navigator }
                         });
 
-                        // Cambiar la UI localmente
-                        isAuthenticated = true;
-                        if (loginScreen) loginScreen.style.display = 'none';
-                        if (appScreen) appScreen.style.display = 'flex';
-                        if (userEmailDisplay) userEmailDisplay.textContent = student;
-
-                        // solicitar estado de session al host
-                        requestSessionStatus();
+                        // bloquear botón mientras esperamos respuesta
+                        startLoginBtn.disabled = true;
+                        startLoginBtn.textContent = 'Iniciando...';
                     });
                 }
 
@@ -625,6 +601,7 @@ Puedo ayudarte con:
                             loginError.style.display = 'none';
                         }
                         if (userEmailDisplay) userEmailDisplay.textContent = '';
+                        resetLoginButtons();
                     });
                 }
 
@@ -824,7 +801,7 @@ actions.appendChild(completeBtn);
 // Construir la fila de la tarea
 taskItem.appendChild(taskDesc);
 taskItem.appendChild(actions);
-
+pendingTasksList.appendChild(taskItem);
                     }
                     
                     const completeButtons = document.querySelectorAll('.task-complete-btn');
@@ -1008,11 +985,24 @@ taskItem.appendChild(actions);
                     const message = event.data;
                     switch (message.type) {
                         case 'AUTH_SUCCESS':
-                            // Host confirma auth
+                            // Host confirma que el correo piloto es válido (formato + dominio)
+                            // Mostrar campo del navegante debajo del piloto (sin esconder el piloto)
                             isAuthenticated = true;
-                            if (loginScreen) loginScreen.style.display = 'none';
-                            if (appScreen) appScreen.style.display = 'flex';
-                            if (userEmailDisplay) userEmailDisplay.textContent = message.email || '';
+                            if (studentEmailInput) {
+                                studentEmailInput.disabled = true;
+                            }
+                            if (nextBtn) {
+                                nextBtn.style.display = 'none';
+                            }
+                            if (navigatorField) {
+                                navigatorField.classList.remove('hidden');
+                                // poner foco en el campo del navegante
+                                const navInput = document.getElementById('navigatorEmailInput');
+                                if (navInput) navInput.focus();
+                            }
+                            // limpiar errores y re-habilitar botones si estaban en loading
+                            resetLoginButtons();
+                            if (loginError) { loginError.textContent = ''; loginError.style.display = 'none'; }
                             break;
 
                         case 'LOGOUT_SUCCESS':
@@ -1025,6 +1015,8 @@ taskItem.appendChild(actions);
                                 loginError.textContent = '';
                                 loginError.style.display = 'none';
                             }
+                            resetLoginButtons();
+                            if (userEmailDisplay) userEmailDisplay.textContent = '';
                             break;
 
                         case 'BOT_RESPONSE':
@@ -1032,19 +1024,41 @@ taskItem.appendChild(actions);
                             break;
 
                         case 'ERROR':
-                            if (isAuthenticated) {
-                                mostrarError(message.mensaje);
+                            // Si ocurrió un error durante el login/verify, mostrarlo en la zona de login
+                            if (!isAuthenticated) {
+                                showLoginError(message.mensaje || 'Error al autenticar');
+                                // re-habilitar botones en caso de que estén bloqueados por la validación
+                                resetLoginButtons();
                             } else {
-                                showLoginError(message.mensaje);
+                                mostrarError(message.mensaje);
                             }
                             break;
 
                         case 'PP_RESULTADO':
                             switch (message.comando) {
                                 case 'INICIAR_SESION':
+                                    // Cuando la sesión de pair programming fue iniciada por el host,
+                                    // ocultamos la pantalla de login y mostramos la app completa.
+                                    try {
+                                        isAuthenticated = true;
+                                        if (loginScreen) loginScreen.style.display = 'none';
+                                        if (appScreen) appScreen.style.display = 'flex';
+                                        // establecer email visible (si viene en resultado o usar el input)
+                                        if (userEmailDisplay) {
+                                            userEmailDisplay.textContent = (message.resultado && message.resultado.driver) ? message.resultado.driver : (studentEmailInput && studentEmailInput.value) || '';
+                                        }
+                                    } catch (e) {
+                                        // ignorar
+                                    }
+                                    // Actualizar UI de sesión con el resultado
+                                    updateSessionUI(message.resultado || {});
+                                    // re-habilitar botones de login por si se necesitan
+                                    resetLoginButtons();
+                                    break;
+
                                 case 'CAMBIAR_ROLES':
                                 case 'OBTENER_ESTADO':
-                                    updateSessionUI(message.resultado);
+                                    updateSessionUI(message.resultado || {});
                                     break;
 
                                 case 'FINALIZAR_SESION':
