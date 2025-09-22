@@ -253,6 +253,25 @@ class SidebarProvider {
                 }
                 break;
 
+            case 'ELIMINAR_TAREA':
+                if (!this.pairSession.sessionActive) {
+                    throw new Error('No hay una sesión activa para completar tareas.');
+                }
+                if (!params.taskId) {
+                    throw new Error('Se requiere el ID de la tarea.');
+                }
+                const taskToDelete = this.pairSession.sessionTasks.find(t => t.id === params.taskId);
+                resultado = this.pairSession.completeTask(params.taskId);
+                if (taskToDelete) {
+                    trackTaskEvent('COMPLETE', {
+                        task_id: params.taskId,
+                        description: taskToDelete.description,
+                        completed_by: authenticatedEmail,
+                        time_to_complete: Date.now() - new Date(taskToDelete.createdAt).getTime(),
+                        pair_session_active: true
+                    }, this._context);
+                }
+                break;
             case 'OBTENER_ESTADO':
                 resultado = this.pairSession.getSessionStatus();
                 if (this.pairSession.sessionActive) {

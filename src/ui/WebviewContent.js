@@ -190,10 +190,9 @@ leiaImagePath) {
                 background: var(--input-bg);
             }
 
+            /* OCULTAR botones de cambiar roles y finalizar sesión */
             .controls-container {
-                display:flex;
-                gap:8px;
-                margin-top:8px;
+                display: none !important;
             }
 
             /* Task manager styles */
@@ -352,7 +351,7 @@ leiaImagePath) {
                     <div class="user-info" style="margin-bottom:6px;">
                         <div class="muted">Conectado como: <strong id="userEmailDisplay">${authenticatedEmail || ''}</strong></div>
                         <div>
-                            <button id="logoutBtn" class="small-btn">Cerrar sesión</button>
+                            <button id="logoutBtn" class="small-btn">Finalizar sesión</button>
                         </div>
                     </div>
 
@@ -389,6 +388,8 @@ leiaImagePath) {
                                         </div>
                                     </div>
 
+                                    <!-- BOTONES REMOVIDOS: Ya no se muestran los botones de "Cambiar roles" y "Finalizar sesión" -->
+                                    <!-- Los botones están ocultos con CSS: .controls-container { display: none !important; } -->
                                     <div class="controls-container" style="margin-top:8px;">
                                         <button id="switchRolesBtn" class="small-btn">Cambiar roles</button>
                                         <button id="endSessionBtn" class="small-btn">Finalizar sesión</button>
@@ -420,11 +421,6 @@ leiaImagePath) {
                             <div class="tasks-list-container">
                                 <div class="tasks-list-header muted">Tareas pendientes</div>
                                 <ul id="pendingTasksList" class="tasks-list"></ul>
-                            </div>
-
-                            <div class="tasks-list-container" style="margin-top:8px;">
-                                <div class="tasks-list-header muted">Tareas completadas</div>
-                                <ul id="completedTasksList" class="tasks-list"></ul>
                             </div>
                         </div>
                     </div>
@@ -496,7 +492,7 @@ Puedo ayudarte con:
                 const startSessionForm = document.getElementById('startSessionForm');
                 const pairProgrammingGuide = document.getElementById('pairProgrammingGuide');
 
-                // Session controls
+                // Session controls - NOTA: Los botones están ocultos pero mantenemos las referencias por compatibilidad
                 const timerDisplay = document.getElementById('timerDisplay');
                 const driverEmail = document.getElementById('driverEmail');
                 const navigatorEmail = document.getElementById('navigatorEmail');
@@ -865,6 +861,14 @@ pendingTasksList.appendChild(taskItem);
                     });
                 }
 
+                function deleteTask(taskId) {
+                    vscode.postMessage({
+                        type: 'PP_COMANDO',
+                        comando: 'ELIMINARR_TAREA',
+                        params: { taskId }
+                    });
+                }
+
                 /* ---------------------- SESSION (PP) ---------------------- */
                 function updateTimerDisplay(timeRemaining) {
                     if (!timerDisplay) return;
@@ -884,41 +888,15 @@ pendingTasksList.appendChild(taskItem);
                         if (remaining <= 0) {
                             clearInterval(timerInterval);
                             updateTimerDisplay(0);
-                            notifySwitchRoles();
+                            // FUNCIONALIDAD REMOVIDA: No llamar notifySwitchRoles()
                             return;
                         }
                         updateTimerDisplay(remaining);
                     }, 1000);
                 }
 
-                function notifySwitchRoles() {
-                    const notification = document.createElement('div');
-                    notification.className = 'notification switch-roles-notification';
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'notification-content';
-                    const title = document.createElement('h4');
-                    title.textContent = '¡Tiempo completado!';
-                    const message = document.createElement('p');
-                    message.textContent = 'Es momento de cambiar roles entre piloto y navegante.';
-                    const button = document.createElement('button');
-                    button.className = 'small-btn';
-                    button.id = 'switchRolesNotificationBtn';
-                    button.textContent = 'Cambiar ahora';
-                    contentDiv.appendChild(title);
-                    contentDiv.appendChild(message);
-                    contentDiv.appendChild(button);
-                    notification.appendChild(contentDiv);
-                    document.body.appendChild(notification);
-
-                    document.getElementById('switchRolesNotificationBtn').addEventListener('click', function() {
-                        switchRoles();
-                        if (notification.parentNode) notification.parentNode.removeChild(notification);
-                    });
-
-                    setTimeout(function() {
-                        if (document.body.contains(notification)) document.body.removeChild(notification);
-                    }, 30000);
-                }
+                // FUNCIÓN REMOVIDA: notifySwitchRoles ya no se usa
+                // function notifySwitchRoles() { ... }
 
                 function startSession() {
                     const navEmail = (navigatorEmailInputMain && navigatorEmailInputMain.value || '').trim();
@@ -939,17 +917,14 @@ pendingTasksList.appendChild(taskItem);
                     });
                 }
 
-                function switchRoles() {
-                    vscode.postMessage({ type: 'PP_COMANDO', comando: 'CAMBIAR_ROLES' });
-                }
-
-                function endSession() {
-                    vscode.postMessage({ type: 'PP_COMANDO', comando: 'FINALIZAR_SESION' });
-                }
+                // FUNCIONES REMOVIDAS: switchRoles() y endSession() ya no están disponibles
+                // function switchRoles() { ... }
+                // function endSession() { ... }
 
                 if (startSessionBtn) startSessionBtn.addEventListener('click', startSession);
-                if (switchRolesBtn) switchRolesBtn.addEventListener('click', switchRoles);
-                if (endSessionBtn) endSessionBtn.addEventListener('click', endSession);
+                // EVENTOS REMOVIDOS: Los botones están ocultos y no funcionan
+                // if (switchRolesBtn) switchRolesBtn.addEventListener('click', switchRoles);
+                // if (endSessionBtn) endSessionBtn.addEventListener('click', endSession);
 
                 function updateSessionUI(sessionData) {
                     if (sessionData.sessionActive) {
@@ -1056,6 +1031,7 @@ pendingTasksList.appendChild(taskItem);
                                     resetLoginButtons();
                                     break;
 
+                                // CASOS REMOVIDOS: Ya no se procesan los comandos de cambiar roles y finalizar sesión
                                 case 'CAMBIAR_ROLES':
                                 case 'OBTENER_ESTADO':
                                     updateSessionUI(message.resultado || {});
@@ -1100,12 +1076,13 @@ pendingTasksList.appendChild(taskItem);
                             }
                             break;
 
+                        // EVENTOS REMOVIDOS: Ya no se procesan los eventos de timer
                         case 'TIMER_ENDED':
-                            notifySwitchRoles();
+                            // No hacer nada - función removida
                             break;
 
                         case 'TIMER_WARNING':
-                            // mostrar advertencia si necesario
+                            // No hacer nada - función removida
                             break;
                     }
                 });
