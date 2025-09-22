@@ -190,6 +190,41 @@ class PairProgrammingSession {
     }
 
     /**
+     * Editar una tarea pendiente
+     * @param {number} taskId - ID de la tarea
+     * @param {string} newDescription - Nueva descripción
+     * @returns {Object} - Listas actualizadas de tareas
+  /**
+ * Editar una tarea pendiente
+ * @param {number} taskId - ID de la tarea
+ * @param {string} newDescription - Nueva descripción
+ * @returns {Object} - Lista actualizada de tareas pendientes
+ */
+editTask(taskId, newDescription) {
+    const task = this.sessionTasks.find(t => t.id === taskId);
+    if (task) {
+        task.description = newDescription;
+    }
+    return {
+        pendingTasks: this.sessionTasks
+    };
+}
+
+/**
+ * Eliminar una tarea pendiente
+ * @param {number} taskId - ID de la tarea
+ * @returns {Object} - Lista actualizada de tareas pendientes
+ */
+deleteTask(taskId) {
+    const index = this.sessionTasks.findIndex(t => t.id === taskId);
+    if (index !== -1) {
+        this.sessionTasks.splice(index, 1);
+    }
+    return {
+        pendingTasks: this.sessionTasks
+    };
+}
+    /**
      * Generar resumen de la sesión
      * @returns {Object} - Datos del resumen
      */

@@ -730,363 +730,273 @@ Puedo ayudarte con:
                 }
 
                 /* ---------------------- TASKS (UI <-> extension) ---------------------- */
-                function updatePendingTasksList() {
-                    if (!pendingTasksList) return;
-                    pendingTasksList.innerHTML = '';
-                    
-                    if (pendingTasks.length === 0) {
-                        const emptyItem = document.createElement('li');
-                        emptyItem.className = 'task-item empty-task';
-                        emptyItem.textContent = 'No hay tareas pendientes';
-                        pendingTasksList.appendChild(emptyItem);
-                        return;
-                    }
-                    
-                    for (let i = 0; i < pendingTasks.length; i++) {
-                        const task = pendingTasks[i];
-                        const taskItem = document.createElement('li');
-                        taskItem.className = 'task-item';
-                      const taskDesc = document.createElement('span');
-taskDesc.className = 'task-description';
-taskDesc.textContent = task.description;
+ /* ---------------------- TASKS (UI <-> extension) ---------------------- */
+function updatePendingTasksList() {
+    if (!pendingTasksList) return;
+    pendingTasksList.innerHTML = '';
 
-const actions = document.createElement('span');
-actions.className = 'task-actions';
-
-// Botón editar
-const editBtn = document.createElement('button');
-editBtn.textContent = '✏️';
-editBtn.onclick = () => {
-    const nuevo = prompt('Editar tarea:', task.description);
-    if (nuevo) {
-        vscode.postMessage({
-            type: 'PP_COMANDO',
-            comando: 'EDITAR_TAREA',
-            params: { taskId: task.id, descripcion: nuevo }
-        });
+    if (pendingTasks.length === 0) {
+        const emptyItem = document.createElement('li');
+        emptyItem.className = 'task-item empty-task';
+        emptyItem.textContent = 'No hay tareas pendientes';
+        pendingTasksList.appendChild(emptyItem);
+        return;
     }
-};
 
-// Botón eliminar
-const deleteBtn = document.createElement('button');
-deleteBtn.textContent = '🗑';
-deleteBtn.onclick = () => {
+    for (let i = 0; i < pendingTasks.length; i++) {
+        const task = pendingTasks[i];
+        const taskItem = document.createElement('li');
+        taskItem.className = 'task-item';
+        
+
+        const taskDesc = document.createElement('span');
+        taskDesc.className = 'task-description';
+        taskDesc.textContent = task.description;
+
+        const actions = document.createElement('span');
+        actions.className = 'task-actions';
+
+        // Botón editar
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '✏️';
+        editBtn.onclick = () => {
+            const nuevo = prompt('Editar tarea:', task.description);
+            if (nuevo) {
+                vscode.postMessage({
+                    type: 'PP_COMANDO',
+                    comando: 'EDITAR_TAREA',
+                    params: { taskId: task.id, descripcion: nuevo }
+                });
+            }
+        };
+
+        // Botón eliminar
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = '🗑';
+        deleteBtn.onclick = () => {
+            vscode.postMessage({
+                type: 'PP_COMANDO',
+                comando: 'ELIMINAR_TAREA',
+                params: { taskId: task.id }
+            });
+        };
+
+        // Botón completar
+        const completeBtn = document.createElement('button');
+        completeBtn.textContent = '✅';
+        completeBtn.onclick = () => {
+            vscode.postMessage({
+                type: 'PP_COMANDO',
+                comando: 'COMPLETAR_TAREA',
+                params: { taskId: task.id }
+            });
+        };
+
+        actions.appendChild(editBtn);
+        actions.appendChild(deleteBtn);
+        actions.appendChild(completeBtn);
+
+        taskItem.appendChild(taskDesc);
+        taskItem.appendChild(actions);
+        pendingTasksList.appendChild(taskItem);
+    }
+}
+
+function addTask() {
+    const description = newTaskInput.value.trim();
+    if (!description) return;
     vscode.postMessage({
         type: 'PP_COMANDO',
-        comando: 'ELIMINAR_TAREA',
-        params: { taskId: task.id }
+        comando: 'AGREGAR_TAREA',
+        params: { descripcion: description }
     });
-};
+    newTaskInput.value = '';
+}
 
-// Botón completar
-const completeBtn = document.createElement('button');
-completeBtn.textContent = '✅';
-completeBtn.onclick = () => {
+if (addTaskBtn) {
+    addTaskBtn.addEventListener('click', addTask);
+    newTaskInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addTask();
+        }
+    });
+}
+
+function completeTask(taskId) {
     vscode.postMessage({
         type: 'PP_COMANDO',
         comando: 'COMPLETAR_TAREA',
-        params: { taskId: task.id }
+        params: { taskId }
     });
-};
+}
 
-// Añadir los botones al contenedor de acciones
-actions.appendChild(editBtn);
-actions.appendChild(deleteBtn);
-actions.appendChild(completeBtn);
+function deleteTask(taskId) {
+    vscode.postMessage({
+        type: 'PP_COMANDO',
+        comando: 'ELIMINAR_TAREA',
+        params: { taskId }
+    });
+}
 
-// Construir la fila de la tarea
-taskItem.appendChild(taskDesc);
-taskItem.appendChild(actions);
-pendingTasksList.appendChild(taskItem);
-                    }
-                    
-                    const completeButtons = document.querySelectorAll('.task-complete-btn');
-                    completeButtons.forEach(btn => {
-                        btn.removeEventListener('click', onCompleteBtnClick); // seguro
-                        btn.addEventListener('click', onCompleteBtnClick);
-                    });
-                }
+/* ---------------------- SESSION (PP) ---------------------- */
+function updateTimerDisplay(timeRemaining) {
+    if (!timerDisplay) return;
+    const minutes = Math.floor(timeRemaining / 60000);
+    const seconds = Math.floor((timeRemaining % 60000) / 1000);
+    const minutesStr = minutes < 10 ? '0' + minutes : minutes.toString();
+    const secondsStr = seconds < 10 ? '0' + seconds : seconds.toString();
+    timerDisplay.textContent = minutesStr + ':' + secondsStr;
+}
 
-                function onCompleteBtnClick(e) {
-                    const taskId = parseInt(this.getAttribute('data-task-id'));
-                    completeTask(taskId);
-                }
+function startUITimer(duration) {
+    clearInterval(timerInterval);
+    const endTime = Date.now() + duration;
+    updateTimerDisplay(duration);
+    timerInterval = setInterval(() => {
+        const remaining = endTime - Date.now();
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+            updateTimerDisplay(0);
+            return;
+        }
+        updateTimerDisplay(remaining);
+    }, 1000);
+}
 
-                function updateCompletedTasksList() {
-                    if (!completedTasksList) return;
-                    completedTasksList.innerHTML = '';
-                    
-                    if (completedTasks.length === 0) {
-                        const emptyItem = document.createElement('li');
-                        emptyItem.className = 'task-item empty-task';
-                        emptyItem.textContent = 'No hay tareas completadas';
-                        completedTasksList.appendChild(emptyItem);
-                        return;
-                    }
-                    
-                    completedTasks.forEach(task => {
-                        const taskItem = document.createElement('li');
-                        taskItem.className = 'task-item completed-task';
-                        taskItem.textContent = task.description;
-                        completedTasksList.appendChild(taskItem);
-                    });
-                }
+function startSession() {
+    const navEmail = (navigatorEmailInputMain && navigatorEmailInputMain.value || '').trim();
+    if (!navEmail) {
+        const error = document.createElement('div');
+        error.className = 'error';
+        error.textContent = 'Por favor, ingresa el correo del navegante.';
+        startSessionForm.appendChild(error);
+        setTimeout(function() {
+            if (error.parentNode) error.parentNode.removeChild(error);
+        }, 3000);
+        return;
+    }
+    vscode.postMessage({
+        type: 'PP_COMANDO',
+        comando: 'INICIAR_SESION',
+        params: { navigatorEmail: navEmail }
+    });
+}
 
-                function addTask() {
-                    const description = newTaskInput.value.trim();
-                    if (!description) return;
-                    vscode.postMessage({
-                        type: 'PP_COMANDO',
-                        comando: 'AGREGAR_TAREA',
-                        params: { descripcion: description }
-                    });
-                    newTaskInput.value = '';
-                }
+if (startSessionBtn) startSessionBtn.addEventListener('click', startSession);
 
-                if (addTaskBtn) {
-                    addTaskBtn.addEventListener('click', addTask);
-                    newTaskInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addTask();
+function updateSessionUI(sessionData) {
+    if (sessionData.sessionActive) {
+        if (sessionStatus) sessionStatus.classList.remove('hidden');
+        if (document.getElementById('startSessionForm')) document.getElementById('startSessionForm').style.display = 'none';
+        if (pairProgrammingGuide) pairProgrammingGuide.classList.remove('hidden');
+
+        driverEmail.textContent = sessionData.driver || 'No asignado';
+        navigatorEmail.textContent = sessionData.navigator || 'No asignado';
+
+        if (typeof sessionData.timeRemaining === 'number') {
+            startUITimer(sessionData.timeRemaining);
+        }
+    } else {
+        if (sessionStatus) sessionStatus.classList.add('hidden');
+        if (document.getElementById('startSessionForm')) document.getElementById('startSessionForm').style.display = 'block';
+        if (pairProgrammingGuide) pairProgrammingGuide.classList.add('hidden');
+
+        clearInterval(timerInterval);
+        pendingTasks = [];
+        updatePendingTasksList();
+    }
+}
+
+function requestSessionStatus() {
+    vscode.postMessage({ type: 'PP_COMANDO', comando: 'OBTENER_ESTADO' });
+}
+
+/* ---------------------- MENSAJES DEL HOST ---------------------- */
+window.addEventListener('message', event => {
+    const message = event.data;
+    switch (message.type) {
+        case 'AUTH_SUCCESS':
+            isAuthenticated = true;
+            if (studentEmailInput) studentEmailInput.disabled = true;
+            if (nextBtn) nextBtn.style.display = 'none';
+            if (navigatorField) {
+                navigatorField.classList.remove('hidden');
+                const navInput = document.getElementById('navigatorEmailInput');
+                if (navInput) navInput.focus();
+            }
+            resetLoginButtons();
+            if (loginError) { loginError.textContent = ''; loginError.style.display = 'none'; }
+            break;
+
+        case 'LOGOUT_SUCCESS':
+            isAuthenticated = false;
+            if (appScreen) appScreen.style.display = 'none';
+            if (loginScreen) loginScreen.style.display = 'flex';
+            if (studentEmailInput) studentEmailInput.value = '';
+            if (navigatorEmailInput) navigatorEmailInput.value = '';
+            if (loginError) {
+                loginError.textContent = '';
+                loginError.style.display = 'none';
+            }
+            resetLoginButtons();
+            if (userEmailDisplay) userEmailDisplay.textContent = '';
+            break;
+
+        case 'BOT_RESPONSE':
+            agregarMensaje(message.mensaje, 'bot');
+            break;
+
+        case 'ERROR':
+            if (!isAuthenticated) {
+                showLoginError(message.mensaje || 'Error al autenticar');
+                resetLoginButtons();
+            } else {
+                mostrarError(message.mensaje);
+            }
+            break;
+
+        case 'PP_RESULTADO':
+            switch (message.comando) {
+                case 'INICIAR_SESION':
+                    try {
+                        isAuthenticated = true;
+                        if (loginScreen) loginScreen.style.display = 'none';
+                        if (appScreen) appScreen.style.display = 'flex';
+                        if (userEmailDisplay) {
+                            userEmailDisplay.textContent = (message.resultado && message.resultado.driver)
+                                ? message.resultado.driver
+                                : (studentEmailInput && studentEmailInput.value) || '';
                         }
-                    });
-                }
+                    } catch (e) {}
+                    updateSessionUI(message.resultado || {});
+                    resetLoginButtons();
+                    break;
 
-                function completeTask(taskId) {
-                    vscode.postMessage({
-                        type: 'PP_COMANDO',
-                        comando: 'COMPLETAR_TAREA',
-                        params: { taskId }
-                    });
-                }
+                case 'CAMBIAR_ROLES':
+                case 'OBTENER_ESTADO':
+                    updateSessionUI(message.resultado || {});
+                    break;
 
-                function deleteTask(taskId) {
-                    vscode.postMessage({
-                        type: 'PP_COMANDO',
-                        comando: 'ELIMINARR_TAREA',
-                        params: { taskId }
-                    });
-                }
+                case 'FINALIZAR_SESION':
+                    updateSessionUI({ sessionActive: false });
+                    break;
 
-                /* ---------------------- SESSION (PP) ---------------------- */
-                function updateTimerDisplay(timeRemaining) {
-                    if (!timerDisplay) return;
-                    const minutes = Math.floor(timeRemaining / 60000);
-                    const seconds = Math.floor((timeRemaining % 60000) / 1000);
-                    const minutesStr = minutes < 10 ? '0' + minutes : minutes.toString();
-                    const secondsStr = seconds < 10 ? '0' + seconds : seconds.toString();
-                    timerDisplay.textContent = minutesStr + ':' + secondsStr;
-                }
+                case 'AGREGAR_TAREA':
+                    pendingTasks = message.resultado || [];
+                    updatePendingTasksList();
+                    break;
 
-                function startUITimer(duration) {
-                    clearInterval(timerInterval);
-                    const endTime = Date.now() + duration;
-                    updateTimerDisplay(duration);
-                    timerInterval = setInterval(() => {
-                        const remaining = endTime - Date.now();
-                        if (remaining <= 0) {
-                            clearInterval(timerInterval);
-                            updateTimerDisplay(0);
-                            // FUNCIONALIDAD REMOVIDA: No llamar notifySwitchRoles()
-                            return;
-                        }
-                        updateTimerDisplay(remaining);
-                    }, 1000);
-                }
-
-                // FUNCIÓN REMOVIDA: notifySwitchRoles ya no se usa
-                // function notifySwitchRoles() { ... }
-
-                function startSession() {
-                    const navEmail = (navigatorEmailInputMain && navigatorEmailInputMain.value || '').trim();
-                    if (!navEmail) {
-                        const error = document.createElement('div');
-                        error.className = 'error';
-                        error.textContent = 'Por favor, ingresa el correo del navegante.';
-                        startSessionForm.appendChild(error);
-                        setTimeout(function() {
-                            if (error.parentNode) error.parentNode.removeChild(error);
-                        }, 3000);
-                        return;
-                    }
-                    vscode.postMessage({
-                        type: 'PP_COMANDO',
-                        comando: 'INICIAR_SESION',
-                        params: { navigatorEmail: navEmail }
-                    });
-                }
-
-                // FUNCIONES REMOVIDAS: switchRoles() y endSession() ya no están disponibles
-                // function switchRoles() { ... }
-                // function endSession() { ... }
-
-                if (startSessionBtn) startSessionBtn.addEventListener('click', startSession);
-                // EVENTOS REMOVIDOS: Los botones están ocultos y no funcionan
-                // if (switchRolesBtn) switchRolesBtn.addEventListener('click', switchRoles);
-                // if (endSessionBtn) endSessionBtn.addEventListener('click', endSession);
-
-                function updateSessionUI(sessionData) {
-                    if (sessionData.sessionActive) {
-                        if (sessionStatus) sessionStatus.classList.remove('hidden');
-                        if (document.getElementById('startSessionForm')) document.getElementById('startSessionForm').style.display = 'none';
-                        if (pairProgrammingGuide) pairProgrammingGuide.classList.remove('hidden');
-
-                        driverEmail.textContent = sessionData.driver || 'No asignado';
-                        navigatorEmail.textContent = sessionData.navigator || 'No asignado';
-
-                        if (typeof sessionData.timeRemaining === 'number') {
-                            startUITimer(sessionData.timeRemaining);
-                        }
-                    } else {
-                        if (sessionStatus) sessionStatus.classList.add('hidden');
-                        if (document.getElementById('startSessionForm')) document.getElementById('startSessionForm').style.display = 'block';
-                        if (pairProgrammingGuide) pairProgrammingGuide.classList.add('hidden');
-
-                        clearInterval(timerInterval);
-                        pendingTasks = [];
-                        completedTasks = [];
-                        updatePendingTasksList();
-                        updateCompletedTasksList();
-                    }
-                }
-
-                function requestSessionStatus() {
-                    vscode.postMessage({ type: 'PP_COMANDO', comando: 'OBTENER_ESTADO' });
-                }
-
-                /* ---------------------- MENSAJES DEL HOST ---------------------- */
-                window.addEventListener('message', event => {
-                    const message = event.data;
-                    switch (message.type) {
-                        case 'AUTH_SUCCESS':
-                            // Host confirma que el correo piloto es válido (formato + dominio)
-                            // Mostrar campo del navegante debajo del piloto (sin esconder el piloto)
-                            isAuthenticated = true;
-                            if (studentEmailInput) {
-                                studentEmailInput.disabled = true;
-                            }
-                            if (nextBtn) {
-                                nextBtn.style.display = 'none';
-                            }
-                            if (navigatorField) {
-                                navigatorField.classList.remove('hidden');
-                                // poner foco en el campo del navegante
-                                const navInput = document.getElementById('navigatorEmailInput');
-                                if (navInput) navInput.focus();
-                            }
-                            // limpiar errores y re-habilitar botones si estaban en loading
-                            resetLoginButtons();
-                            if (loginError) { loginError.textContent = ''; loginError.style.display = 'none'; }
-                            break;
-
-                        case 'LOGOUT_SUCCESS':
-                            isAuthenticated = false;
-                            if (appScreen) appScreen.style.display = 'none';
-                            if (loginScreen) loginScreen.style.display = 'flex';
-                            if (studentEmailInput) studentEmailInput.value = '';
-                            if (navigatorEmailInput) navigatorEmailInput.value = '';
-                            if (loginError) {
-                                loginError.textContent = '';
-                                loginError.style.display = 'none';
-                            }
-                            resetLoginButtons();
-                            if (userEmailDisplay) userEmailDisplay.textContent = '';
-                            break;
-
-                        case 'BOT_RESPONSE':
-                            agregarMensaje(message.mensaje, 'bot');
-                            break;
-
-                        case 'ERROR':
-                            // Si ocurrió un error durante el login/verify, mostrarlo en la zona de login
-                            if (!isAuthenticated) {
-                                showLoginError(message.mensaje || 'Error al autenticar');
-                                // re-habilitar botones en caso de que estén bloqueados por la validación
-                                resetLoginButtons();
-                            } else {
-                                mostrarError(message.mensaje);
-                            }
-                            break;
-
-                        case 'PP_RESULTADO':
-                            switch (message.comando) {
-                                case 'INICIAR_SESION':
-                                    // Cuando la sesión de pair programming fue iniciada por el host,
-                                    // ocultamos la pantalla de login y mostramos la app completa.
-                                    try {
-                                        isAuthenticated = true;
-                                        if (loginScreen) loginScreen.style.display = 'none';
-                                        if (appScreen) appScreen.style.display = 'flex';
-                                        // establecer email visible (si viene en resultado o usar el input)
-                                        if (userEmailDisplay) {
-                                            userEmailDisplay.textContent = (message.resultado && message.resultado.driver) ? message.resultado.driver : (studentEmailInput && studentEmailInput.value) || '';
-                                        }
-                                    } catch (e) {
-                                        // ignorar
-                                    }
-                                    // Actualizar UI de sesión con el resultado
-                                    updateSessionUI(message.resultado || {});
-                                    // re-habilitar botones de login por si se necesitan
-                                    resetLoginButtons();
-                                    break;
-
-                                // CASOS REMOVIDOS: Ya no se procesan los comandos de cambiar roles y finalizar sesión
-                                case 'CAMBIAR_ROLES':
-                                case 'OBTENER_ESTADO':
-                                    updateSessionUI(message.resultado || {});
-                                    break;
-
-                                case 'FINALIZAR_SESION':
-                                    updateSessionUI({ sessionActive: false });
-
-                                    // Resumen de sesión
-                                    const resumenSesion = document.createElement('div');
-                                    resumenSesion.className = 'session-summary';
-                                    const titleElement = document.createElement('h4');
-                                    titleElement.textContent = 'Resumen de la sesión';
-                                    const completedTasksElement = document.createElement('p');
-                                    completedTasksElement.textContent = 'Tareas completadas: ' + (message.resultado.completedTasks ? message.resultado.completedTasks.length : 0);
-                                    const pendingTasksElement = document.createElement('p');
-                                    pendingTasksElement.textContent = 'Tareas pendientes: ' + (message.resultado.pendingTasks ? message.resultado.pendingTasks.length : 0);
-                                    const durationElement = document.createElement('p');
-                                    const durationMinutes = Math.floor((message.resultado.duration || 0) / 60000);
-                                    durationElement.textContent = 'Duración: ' + durationMinutes + ' minutos';
-                                    resumenSesion.appendChild(titleElement);
-                                    resumenSesion.appendChild(completedTasksElement);
-                                    resumenSesion.appendChild(pendingTasksElement);
-                                    resumenSesion.appendChild(durationElement);
-                                    if (document.getElementById('startSessionForm')) document.getElementById('startSessionForm').appendChild(resumenSesion);
-                                    setTimeout(function() {
-                                        if (resumenSesion.parentNode) resumenSesion.parentNode.removeChild(resumenSesion);
-                                    }, 15000);
-                                    break;
-
-                                case 'AGREGAR_TAREA':
-                                    pendingTasks = message.resultado || [];
-                                    updatePendingTasksList();
-                                    break;
-
-                                case 'COMPLETAR_TAREA':
-                                    pendingTasks = message.resultado.pendingTasks || [];
-                                    completedTasks = message.resultado.completedTasks || [];
-                                    updatePendingTasksList();
-                                    updateCompletedTasksList();
-                                    break;
-                            }
-                            break;
-
-                        // EVENTOS REMOVIDOS: Ya no se procesan los eventos de timer
-                        case 'TIMER_ENDED':
-                            // No hacer nada - función removida
-                            break;
-
-                        case 'TIMER_WARNING':
-                            // No hacer nada - función removida
-                            break;
-                    }
-                });
-
+                case 'COMPLETAR_TAREA':
+                case 'EDITAR_TAREA':
+                case 'ELIMINAR_TAREA':
+                    pendingTasks = message.resultado.pendingTasks || [];
+                    updatePendingTasksList();
+                    break;
+            }
+            break;
+    }
+});
                 /* ---------------------- Inicialización ---------------------- */
                 // Solicitar estado inicial si estamos autenticados
                 if (isAuthenticated) {
