@@ -25,6 +25,9 @@
             
             this.pairSession = new PairProgrammingSession();
 
+              // ✅ Inicializar historial de chat
+        this.chatHistory = [];
+
             this.pairSession.setTimerCallbacks({
                 onTimerEnded: this._handleTimerEnded.bind(this),
                 onTimerWarning: this._handleTimerWarning.bind(this)
@@ -63,6 +66,32 @@
                 leiaImagePath
             );
 
+            // ✅ Restaurar estado guardado al volver a abrir la extensión
+const savedState = this._context.globalState.get("pairSessionState");
+if (savedState) {
+    this.pairSession.sessionActive = savedState.sessionActive;
+    this.pairSession.driver = savedState.driver;
+    this.pairSession.navigator = savedState.navigator;
+    this.pairSession.sessionTasks = savedState.pendingTasks || [];
+    this.pairSession.completedTasks = savedState.completedTasks || [];
+
+    // reenviar al frontend para pintar
+    webviewView.webview.postMessage({
+        type: "PP_RESULTADO",
+        comando: "OBTENER_ESTADO",
+        resultado: savedState
+    });
+}
+    // ✅ Restaurar historial de chat
+    const savedChat = this._context.globalState.get("chatHistory") || [];
+    this.chatHistory = savedChat;
+    if (savedChat.length > 0) {
+        webviewView.webview.postMessage({
+            type: "RESTORE_CHAT",
+            mensajes: savedChat
+        });
+    }
+
             webviewView.webview.onDidReceiveMessage(async (message) => {
                 try {
                     switch (message.type) {
@@ -73,6 +102,10 @@
                             await this._logout(webviewView);
                             break;
                         case 'SEND_MESSAGE':
+
+                          // ✅ guardar mensaje de usuario en historial
+                this.chatHistory.push({ from: "user", text: message.texto, timestamp: Date.now() });
+                await this._context.globalState.update("chatHistory", this.chatHistory);
                             await this._procesarMensaje(webviewView, message);
                             break;
                         case 'PP_COMANDO': // pair programming
@@ -130,7 +163,7 @@
             }
             
             await this._globalState.update('authenticatedEmail', undefined);
-            
+            await this._context.globalState.update("pairSessionState", undefined); // ✅ limpiar estado al cerrar sesión
             webviewView.webview.postMessage({ type: 'LOGOUT_SUCCESS' });
         }
 
@@ -298,6 +331,8 @@ case 'ELIMINAR_TAREA':
                     throw new Error(`Comando desconocido: ${comando}`);
             }
             
+            // ✅ Guardar estado actualizado después de cada acción
+await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
             webviewView.webview.postMessage({
                 type: 'PP_RESULTADO',
                 comando,
@@ -306,6 +341,7 @@ case 'ELIMINAR_TAREA':
             
             return resultado;
         }
+
 
         async _procesarMensaje(webviewView, message) {
             try {
@@ -335,6 +371,9 @@ case 'ELIMINAR_TAREA':
                 
                 trackChatInteraction('user_query', message.texto, !!codigo, this._context);
 
+                // ✅ Guardar mensaje del usuario en historial
+        this.chatHistory.push({ from: "user", text: message.texto, timestamp: Date.now() });
+        await this._context.globalState.update("chatHistory", this.chatHistory);
                 const startTime = Date.now();
                 
                 const response = await sendChatRequest({
@@ -376,6 +415,9 @@ case 'ELIMINAR_TAREA':
         }
 
         _enviarRespuesta(webviewView, mensaje) {
+            // ✅ guardar respuesta del bot en historial
+    this.chatHistory.push({ from: "bot", text: mensaje, timestamp: Date.now() });
+    this._context.globalState.update("chatHistory", this.chatHistory);
             webviewView.webview.postMessage({ type: 'BOT_RESPONSE', mensaje });
         }
 

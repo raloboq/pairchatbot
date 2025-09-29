@@ -425,6 +425,8 @@ leiaImagePath) {
                         </div>
                     </div>
 
+                   <!-- CHAT - ahora ocupa el espacio restante -->
+
                     <!-- CHAT - ahora ocupa el espacio restante -->
                     <div class="chat-area">
                         <div class="chat-messages" id="chatMessages">
@@ -461,10 +463,39 @@ Puedo ayudarte con:
             </div> <!-- left-panel -->
         </div> <!-- root -->
 
+        
+<!-- Modal para cambio de rol -->
+<div id="roleModal" style="display:none; 
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    background:rgba(0,0,0,0.85); color:white; 
+    flex-direction:column; justify-content:center; align-items:center;
+    font-size:2rem; z-index:9999;">
+  <p style="margin:0; text-align:center;">⏰ ¡Se acabó el tiempo!<br/> Cambiemos de rol 🚀</p>
+  <button id="btnCambiarRol" 
+          style="padding:1rem 2rem; font-size:1.2rem; margin-top:20px; cursor:pointer; border:none; border-radius:8px; background:#4caf50; color:white;">
+    Cambiar de rol
+  </button>
+</div>
+
+
         <script nonce="${nonce}">
             (function() {
                 const vscode = acquireVsCodeApi();
 
+                // ✅ Restaurar estado si existe
+const previousState = vscode.getState();
+if (previousState && previousState.chatHistory) {
+    previousState.chatHistory.forEach(msg => {
+        addMessage(msg.sender, msg.text);
+    });
+}
+    function saveState() {
+    const chatHistory = Array.from(document.querySelectorAll('.message')).map(m => ({
+        sender: m.classList.contains('bot') ? 'bot' : 'user',
+        text: m.innerText
+    }));
+    vscode.setState({ chatHistory });
+}
                 /* ---------------------- ELEMENTOS PRINCIPALES ---------------------- */
                 // Login
                 const studentEmailInput = document.getElementById('studentEmailInput');
@@ -907,6 +938,17 @@ function updateSessionUI(sessionData) {
         updatePendingTasksList();
     }
 }
+    const btnCambiarRol = document.getElementById('btnCambiarRol');
+if (btnCambiarRol) {
+    btnCambiarRol.addEventListener('click', () => {
+        vscode.postMessage({
+            type: "PP_COMANDO",
+            comando: "CAMBIAR_ROLES"
+        });
+        // Ocultar modal
+        document.getElementById("roleModal").style.display = "none";
+    });
+}
 
 function requestSessionStatus() {
     vscode.postMessage({ type: 'PP_COMANDO', comando: 'OBTENER_ESTADO' });
@@ -928,25 +970,31 @@ window.addEventListener('message', event => {
             resetLoginButtons();
             if (loginError) { loginError.textContent = ''; loginError.style.display = 'none'; }
             break;
+case 'LOGOUT_SUCCESS':
+    isAuthenticated = false;
+    if (appScreen) appScreen.style.display = 'none';
+    if (loginScreen) loginScreen.style.display = 'flex';  
+    if (studentEmailInput) {
+        studentEmailInput.value = '';
+        studentEmailInput.disabled = false;  // ✅ reactivar campo piloto
+    }
+    if (navigatorEmailInput) navigatorEmailInput.value = '';
+    if (loginError) {
+        loginError.textContent = '';
+        loginError.style.display = 'none';
+    }
+    resetLoginButtons();
+    if (userEmailDisplay) userEmailDisplay.textContent = '';
 
-        case 'LOGOUT_SUCCESS':
-            isAuthenticated = false;
-            if (appScreen) appScreen.style.display = 'none';
-            if (loginScreen) loginScreen.style.display = 'flex';
-            if (studentEmailInput) studentEmailInput.value = '';
-            if (navigatorEmailInput) navigatorEmailInput.value = '';
-            if (loginError) {
-                loginError.textContent = '';
-                loginError.style.display = 'none';
-            }
-            resetLoginButtons();
-            if (userEmailDisplay) userEmailDisplay.textContent = '';
-            break;
+    // 🔹 Ocultar campo del navegante al volver al login
+    if (navigatorField) navigatorField.classList.add('hidden');
+
+    break;
 
         case 'BOT_RESPONSE':
-            agregarMensaje(message.mensaje, 'bot');
-            break;
-
+    agregarMensaje(message.mensaje, 'bot');
+    saveState(); // ✅ guardar historial del chat
+    break;
         case 'ERROR':
             if (!isAuthenticated) {
                 showLoginError(message.mensaje || 'Error al autenticar');
@@ -995,6 +1043,11 @@ window.addEventListener('message', event => {
                     break;
             }
             break;
+
+            case 'TIMER_ENDED':
+    const roleModal = document.getElementById('roleModal');
+    if (roleModal) roleModal.style.display = 'flex';
+    break;
     }
 });
                 /* ---------------------- Inicialización ---------------------- */
