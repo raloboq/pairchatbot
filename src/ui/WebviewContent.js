@@ -970,31 +970,31 @@ window.addEventListener('message', event => {
             resetLoginButtons();
             if (loginError) { loginError.textContent = ''; loginError.style.display = 'none'; }
             break;
-case 'LOGOUT_SUCCESS':
-    isAuthenticated = false;
-    if (appScreen) appScreen.style.display = 'none';
-    if (loginScreen) loginScreen.style.display = 'flex';  
-    if (studentEmailInput) {
-        studentEmailInput.value = '';
-        studentEmailInput.disabled = false;  // ✅ reactivar campo piloto
-    }
-    if (navigatorEmailInput) navigatorEmailInput.value = '';
-    if (loginError) {
-        loginError.textContent = '';
-        loginError.style.display = 'none';
-    }
-    resetLoginButtons();
-    if (userEmailDisplay) userEmailDisplay.textContent = '';
+        case 'LOGOUT_SUCCESS':
+            isAuthenticated = false;
+            if (appScreen) appScreen.style.display = 'none';
+            if (loginScreen) loginScreen.style.display = 'flex';  
+            if (studentEmailInput) {
+                studentEmailInput.value = '';
+                studentEmailInput.disabled = false;  // ✅ reactivar campo piloto
+            }
+            if (navigatorEmailInput) navigatorEmailInput.value = '';
+            if (loginError) {
+                loginError.textContent = '';
+                loginError.style.display = 'none';
+            }
+            resetLoginButtons();
+            if (userEmailDisplay) userEmailDisplay.textContent = '';
 
-    // 🔹 Ocultar campo del navegante al volver al login
-    if (navigatorField) navigatorField.classList.add('hidden');
+            // 🔹 Ocultar campo del navegante al volver al login
+            if (navigatorField) navigatorField.classList.add('hidden');
 
-    break;
+            break;
 
         case 'BOT_RESPONSE':
-    agregarMensaje(message.mensaje, 'bot');
-    saveState(); // ✅ guardar historial del chat
-    break;
+            agregarMensaje(message.mensaje, 'bot');
+            saveState(); // ✅ guardar historial del chat
+            break;
         case 'ERROR':
             if (!isAuthenticated) {
                 showLoginError(message.mensaje || 'Error al autenticar');
@@ -1019,36 +1019,53 @@ case 'LOGOUT_SUCCESS':
                     } catch (e) {}
                     updateSessionUI(message.resultado || {});
                     resetLoginButtons();
-                    break;
+                break;
 
                 case 'CAMBIAR_ROLES':
-                case 'OBTENER_ESTADO':
-                    updateSessionUI(message.resultado || {});
                     break;
+                case 'OBTENER_ESTADO':
+                        updateSessionUI(message.resultado || {});
+                        break;
 
                 case 'FINALIZAR_SESION':
-                    updateSessionUI({ sessionActive: false });
-                    break;
+                        updateSessionUI({ sessionActive: false });
+                        break;
 
                 case 'AGREGAR_TAREA':
-                    pendingTasks = message.resultado || [];
-                    updatePendingTasksList();
-                    break;
+                        pendingTasks = message.resultado || [];
+                        updatePendingTasksList();
+                        break;
 
                 case 'COMPLETAR_TAREA':
                 case 'EDITAR_TAREA':
+                        pendingTasks = message.resultado.pendingTasks || [];
+                        updatePendingTasksList();
+                        break;
                 case 'ELIMINAR_TAREA':
-                    pendingTasks = message.resultado.pendingTasks || [];
-                    updatePendingTasksList();
+                        pendingTasks = message.resultado.pendingTasks || [];
+                        updatePendingTasksList();
+                        break;
+                    }
                     break;
+
+        case 'PP_ERROR':
+            if (message.comando === 'INICIAR_SESION') {
+                // Resetear botón
+                if (startLoginBtn) {
+                    startLoginBtn.disabled = false;
+                    startLoginBtn.textContent = 'Iniciar Sesión';
+                }
+                
+                // Mostrar error
+                showLoginError(message.mensaje);
             }
             break;
 
-            case 'TIMER_ENDED':
-    const roleModal = document.getElementById('roleModal');
-    if (roleModal) roleModal.style.display = 'flex';
-    break;
-    }
+        case 'TIMER_ENDED':
+            const roleModal = document.getElementById('roleModal');
+            if (roleModal) roleModal.style.display = 'flex';
+            break;
+            }
 });
                 /* ---------------------- Inicialización ---------------------- */
                 // Solicitar estado inicial si estamos autenticados

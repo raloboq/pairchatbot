@@ -202,11 +202,15 @@ class PairProgrammingSession {
  */
 editTask(taskId, newDescription) {
     const task = this.sessionTasks.find(t => t.id === taskId);
-    if (task) {
-        task.description = newDescription;
+    if (!task) {
+        throw new Error('Tarea no encontrada');
     }
+    task.description = newDescription;
+    // Las tareas en sessionTasks son TODAS pendientes
+    // Las completadas están en completedTasks
     return {
-        pendingTasks: this.sessionTasks
+        pendingTasks: this.sessionTasks,  // ← Cambio aquí: sin filtro
+        completedTasks: this.completedTasks  // ← Cambio aquí: usar la lista existente
     };
 }
 
@@ -221,7 +225,8 @@ deleteTask(taskId) {
         this.sessionTasks.splice(index, 1);
     }
     return {
-        pendingTasks: this.sessionTasks
+        pendingTasks: this.sessionTasks,  // ← Cambio aquí
+        completedTasks: this.completedTasks  // ← Agregar esto
     };
 }
     /**

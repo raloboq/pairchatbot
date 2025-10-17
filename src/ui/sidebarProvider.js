@@ -92,31 +92,40 @@ if (savedState) {
         });
     }
 
-            webviewView.webview.onDidReceiveMessage(async (message) => {
-                try {
-                    switch (message.type) {
-                        case 'VERIFY_EMAIL': // validar piloto
-                            await this._verificarEmail(webviewView, message.email);
-                            break;
-                        case 'LOGOUT':
-                            await this._logout(webviewView);
-                            break;
-                        case 'SEND_MESSAGE':
-
-                          // ✅ guardar mensaje de usuario en historial
-                this.chatHistory.push({ from: "user", text: message.texto, timestamp: Date.now() });
-                await this._context.globalState.update("chatHistory", this.chatHistory);
-                            await this._procesarMensaje(webviewView, message);
-                            break;
-                        case 'PP_COMANDO': // pair programming
-                            await this._procesarComandoPP(webviewView, message.comando, message.params || {});
-                            break;
+    webviewView.webview.onDidReceiveMessage(async (message) => {
+        try {
+            switch (message.type) {
+                case 'VERIFY_EMAIL':
+                    await this._verificarEmail(webviewView, message.email);
+                    break;
+                case 'LOGOUT':
+                    await this._logout(webviewView);
+                    break;
+                case 'SEND_MESSAGE':
+                    this.chatHistory.push({ from: "user", text: message.texto, timestamp: Date.now() });
+                    await this._context.globalState.update("chatHistory", this.chatHistory);
+                    await this._procesarMensaje(webviewView, message);
+                    break;
+                case 'PP_COMANDO':
+                    // ⚠️ ASEGÚRATE QUE ESTA PARTE ESTÉ ASÍ:
+                    try {
+                        await this._procesarComandoPP(webviewView, message.comando, message.params || {});
+                    } catch (ppError) {
+                        console.error('Error en comando PP:', ppError);
+                        // Enviar error específico para PP
+                        webviewView.webview.postMessage({
+                            type: 'PP_ERROR',
+                            comando: message.comando,
+                            mensaje: ppError.message
+                        });
                     }
-                } catch (error) {
-                    console.error('Error procesando mensaje:', error);
-                    this._mostrarError(webviewView, error instanceof Error ? error.message : 'Error desconocido');
-                }
-            });
+                    break;
+            }
+        } catch (error) {
+            console.error('Error procesando mensaje:', error);
+            this._mostrarError(webviewView, error instanceof Error ? error.message : 'Error desconocido');
+        }
+    });
         }
 
         async _verificarEmail(webviewView, email) {
@@ -286,35 +295,57 @@ if (savedState) {
                     }
                     break;
 
-                 case 'EDITAR_TAREA':
-    if (!this.pairSession.sessionActive) {
-        throw new Error('No hay una sesión activa para editar tareas.');
-    }
-    if (!params.taskId || !params.descripcion) {
-        throw new Error('Se requiere el ID y la nueva descripción.');
-    }
-    this.pairSession.editTask(params.taskId, params.descripcion);
+                case 'EDITAR_TAREA':
 
-    resultado = {
-        pendingTasks: this.pairSession.sessionTasks.filter(t => !t.completed),
-        completedTasks: this.pairSession.sessionTasks.filter(t => t.completed)
-    };
-    break;
+                    console.log('🔍 EDITAR_TAREA recibido:', params);
+                    if (!this.pairSession.sessionActive) {
+                        throw new Error('No hay una sesión activa para editar tareas.');
+                    }
+                    if (!params.taskId || !params.descripcion) {
+                        throw new Error('Se requiere el ID y la nueva descripción.');
+                    }
+                    
+                    // ⬇️ AGREGAR ESTO
+                    trackTaskEvent('EDIT', {
+                        task_id: params.taskId,
+                        new_description: params.descripcion,
+                        edited_by: authenticatedEmail,
+                        pair_session_active: true
+                    }, this._context);
+                    
+                    this.pairSession.editTask(params.taskId, params.descripcion);
 
-case 'ELIMINAR_TAREA':
-    if (!this.pairSession.sessionActive) {
-        throw new Error('No hay una sesión activa para eliminar tareas.');
-    }
-    if (!params.taskId) {
-        throw new Error('Se requiere el ID de la tarea.');
-    }
-    this.pairSession.deleteTask(params.taskId);
+                    resultado = {
+                        pendingTasks: this.pairSession.sessionTasks,
+                        completedTasks: this.pairSession.completedTasks
+                    };
+                    break;
 
-    resultado = {
-        pendingTasks: this.pairSession.sessionTasks.filter(t => !t.completed),
-        completedTasks: this.pairSession.sessionTasks.filter(t => t.completed)
-    };
-    break;
+                case 'ELIMINAR_TAREA':
+                    if (!this.pairSession.sessionActive) {
+                        throw new Error('No hay una sesión activa para eliminar tareas.');
+                    }
+                    if (!params.taskId) {
+                        throw new Error('Se requiere el ID de la tarea.');
+                    }
+
+                    const taskToDelete = this.pairSession.sessionTasks.find(t => t.id === params.taskId);
+                    if (taskToDelete) {
+                        trackTaskEvent('DELETE', {
+                            task_id: params.taskId,
+                            description: taskToDelete.description,
+                            deleted_by: authenticatedEmail,
+                            pair_session_active: true
+                        }, this._context);
+                    }
+
+                    this.pairSession.deleteTask(params.taskId);
+
+                        resultado = {
+                            pendingTasks: this.pairSession.sessionTasks,  // ← Sin filtro
+                            completedTasks: this.pairSession.completedTasks  // ← Usar la lista correcta
+                        };
+                        break;
                     
                 case 'OBTENER_ESTADO':
                     resultado = this.pairSession.getSessionStatus();
