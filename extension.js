@@ -73,8 +73,13 @@ const { info } = require('./src/utils/logger');
 /**
  * @param {vscode.ExtensionContext} context
  */
-function activate(context) {
+async function activate(context) {
     info('Activando extensión Leia - Programming Assistant con Pair Programming');
+
+    // Limpiar el estado global al activar para asegurar un inicio limpio
+    await context.globalState.update('authenticatedEmail', undefined);
+    await context.globalState.update('pairSessionState', undefined);
+    await context.globalState.update('chatHistory', undefined);
 
     // Inicializar el servicio de analytics
     initAnalytics(context);
@@ -170,6 +175,7 @@ async function deactivate(context) {
         }, context);
         
         await finalizeAnalytics(context);
+        
     }
 }
 

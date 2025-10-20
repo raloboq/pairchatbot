@@ -37,11 +37,16 @@
         }
 
         resolveWebviewView(webviewView) {
+            console.log('resolveWebviewView called');
             this._view = webviewView;
 
             webviewView.webview.options = {
                 enableScripts: true,
                 localResourceRoots: [this._extensionUri]
+            };
+
+            webviewView.options = {
+                retainContextWhenHidden: true,
             };
 
             const nonce = this._getNonce();
@@ -95,11 +100,25 @@ if (savedState) {
     webviewView.webview.onDidReceiveMessage(async (message) => {
         try {
             switch (message.type) {
+                case 'webviewLoaded':
+                    const email = this._globalState.get('authenticatedEmail');
+                    if (email) {
+                        // Si hay sesión, enviar todos los datos para restaurar la UI
+                        const sessionState = this._context.globalState.get("pairSessionState");
+                        const chatHistory = this._context.globalState.get("chatHistory") || [];
+
+                        webviewView.webview.postMessage({
+                            type: 'restoreSession',
+                            sessionState: sessionState,
+                            chatHistory: chatHistory
+                        });
+                    }
+                    break;
                 case 'VERIFY_EMAIL':
                     await this._verificarEmail(webviewView, message.email);
                     break;
-                case 'LOGOUT':
-                    await this._logout(webviewView);
+                case 'logoutRequest':
+                    await this._clearSession(webviewView);
                     break;
                 case 'SEND_MESSAGE':
                     this.chatHistory.push({ from: "user", text: message.texto, timestamp: Date.now() });
@@ -126,6 +145,24 @@ if (savedState) {
             this._mostrarError(webviewView, error instanceof Error ? error.message : 'Error desconocido');
         }
     });
+
+    webviewView.onDidDispose(() => {
+        console.log('Webview disposed');
+    });
+
+    webviewView.onDidChangeVisibility(() => {
+        console.log('Visibility changed:', webviewView.visible);
+        if (webviewView.visible && this.pairSession.sessionActive) {
+        // ✅ Enviar estado actualizado al frontend al volver a mostrarse
+        webviewView.webview.postMessage({
+            type: "PP_RESULTADO",
+            comando: "OBTENER_ESTADO",
+            resultado: this.pairSession.getSessionStatus()
+        });
+    }
+    });
+
+
         }
 
         async _verificarEmail(webviewView, email) {
@@ -160,9 +197,9 @@ if (savedState) {
             }
         }
 
-        async _logout(webviewView) {
+        async _clearSession(webviewView) {
             const email = this._globalState.get('authenticatedEmail');
-            
+        
             if (email) {
                 trackEvent('USER_LOGOUT', {
                     email,
@@ -171,13 +208,30 @@ if (savedState) {
                 trackSessionEnd(this._context);
             }
             
+            if (this.pairSession && this.pairSession.sessionActive) {
+                this.pairSession.endSession(); // <-- detiene el timer correctamente
+            }
+        
+            // Limpiar el estado persistente
             await this._globalState.update('authenticatedEmail', undefined);
-            await this._context.globalState.update("pairSessionState", undefined); // ✅ limpiar estado al cerrar sesión
-            webviewView.webview.postMessage({ type: 'LOGOUT_SUCCESS' });
+            await this._context.globalState.update("pairSessionState", undefined);
+            await this._context.globalState.update("chatHistory", undefined);
+        
+            // Resetear el estado en memoria
+            this.pairSession = new PairProgrammingSession();
+            this.pairSession.setTimerCallbacks({
+                onTimerEnded: this._handleTimerEnded.bind(this),
+                onTimerWarning: this._handleTimerWarning.bind(this)
+            });
+            this.chatHistory = [];
+        
+            // Notificar al webview para que se reinicie
+            if (webviewView && webviewView.webview) {
+                webviewView.webview.postMessage({ type: 'LOGOUT_SUCCESS' });
+            }
         }
-
-        _handleTimerEnded(notification) {
-            if (this._view) {
+       _handleTimerEnded(notification) {
+            if (this._view && this.pairSession.sessionActive) { // ✅ agregar condición
                 this._view.webview.postMessage({
                     type: 'TIMER_ENDED',
                     message: notification.message
@@ -215,6 +269,10 @@ if (savedState) {
                     if (!this._validarDominioEmail(params.navigatorEmail)) {
                         throw new Error('El correo del navegante tiene un dominio no permitido.');
                     }
+
+                    if (params.navigatorEmail.toLowerCase() === authenticatedEmail.toLowerCase()) {
+                        throw new Error('El correo del navegante debe ser diferente al correo del piloto.');
+                    }
                     
                     trackPairProgrammingEvent('SESSION_START', {
                         driver_email: authenticatedEmail,
@@ -223,7 +281,7 @@ if (savedState) {
                     }, this._context);
                     
                     resultado = this.pairSession.startSession(authenticatedEmail, params.navigatorEmail);
-
+                    await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
                     // 🔹 Responder con PP_RESULTADO para que el webview muestre la app
                     webviewView.webview.postMessage({
                         type: 'PP_RESULTADO',
@@ -304,7 +362,8 @@ if (savedState) {
                     if (!params.taskId || !params.descripcion) {
                         throw new Error('Se requiere el ID y la nueva descripción.');
                     }
-                    
+                    console.log('📝 A punto de trackear evento EDIT');
+
                     // ⬇️ AGREGAR ESTO
                     trackTaskEvent('EDIT', {
                         task_id: params.taskId,
@@ -313,12 +372,17 @@ if (savedState) {
                         pair_session_active: true
                     }, this._context);
                     
+                    // ✅ Agregar console.log DESPUÉS del trackEvent
+                    console.log('✅ Evento EDIT trackeado exitosamente');
+
                     this.pairSession.editTask(params.taskId, params.descripcion);
 
                     resultado = {
                         pendingTasks: this.pairSession.sessionTasks,
                         completedTasks: this.pairSession.completedTasks
                     };
+                    console.log('📊 Resultado de EDITAR_TAREA:', JSON.stringify(resultado, null, 2));
+
                     break;
 
                 case 'ELIMINAR_TAREA':
@@ -363,7 +427,8 @@ if (savedState) {
             }
             
             // ✅ Guardar estado actualizado después de cada acción
-await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
+            await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
+
             webviewView.webview.postMessage({
                 type: 'PP_RESULTADO',
                 comando,

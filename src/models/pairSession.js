@@ -273,6 +273,7 @@ deleteTask(taskId) {
             sessionActive: true,
             driver: this.driver,
             navigator: this.navigator,
+            turnStartTime: this.turnStartTime,
             timeRemaining: this.getRemainingTime(),
             pendingTasks: this.sessionTasks.length,
             completedTasks: this.completedTasks.length
