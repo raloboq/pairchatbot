@@ -326,6 +326,55 @@
                     padding: 12px;
                     border-radius: 8px;
                 }
+                /* ---------- MODAL CAMBIO DE ROL ---------- */
+                .role-modal {
+                    display: none;
+                    position: fixed;
+                    top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    z-index: 9999;
+
+                    /* Fondo semitransparente con más opacidad y blur */
+                    background: rgba(0, 0, 0, 0.75);
+                    backdrop-filter: blur(4px);
+
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+
+                    color: var(--vscode-foreground);
+                    font-family: var(--vscode-font-family);
+                    font-size: 1.8rem;
+                    text-align: center;
+                    padding: 1rem;
+                }
+
+                /* Botón adaptado al tema */
+                .role-modal .small-btn {
+                    margin-top: 20px;
+                    padding: 1rem 2rem;
+                    font-size: 1.1rem;
+                    border-radius: 8px;
+                    border: none;
+                    cursor: pointer;
+
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+                }
+
+                .role-modal .small-btn:hover {
+                    background: var(--vscode-button-hoverBackground);
+                    transform: scale(1.05);
+                    box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+                }
+
+                /* Mostrar el modal */
+                .role-modal.show {
+                    display: flex;
+                }
+
 
                 /* small helpers */
                 .hidden { display:none; }
@@ -498,16 +547,9 @@
 
             
     <!-- Modal para cambio de rol -->
-    <div id="roleModal" style="display:none; 
-        position:fixed; top:0; left:0; width:100%; height:100%;
-        background:rgba(0,0,0,0.85); color:white; 
-        flex-direction:column; justify-content:center; align-items:center;
-        font-size:2rem; z-index:9999;">
-    <p style="margin:0; text-align:center;">⏰ ¡Se acabó el tiempo!<br/> Cambiemos de rol 🚀</p>
-    <button id="btnCambiarRol" 
-            style="padding:1rem 2rem; font-size:1.2rem; margin-top:20px; cursor:pointer; border:none; border-radius:8px; background:#4caf50; color:white;">
-        Cambiar de rol
-    </button>
+    <div id="roleModal" class="role-modal hidden">
+    <p>⏰ ¡Se acabó el tiempo!<br/> Cambiemos de rol 🚀</p>
+    <button id="btnCambiarRol" class="small-btn">Cambiar de rol</button>
     </div>
     
     <!-- Modal para edición de tarea -->
@@ -1156,13 +1198,17 @@
                     case 'CAMBIAR_ROLES':
                         if (message.resultado) {
                             updateSessionUI(message.resultado);  // ✅ refresca emails y timer
+                            pendingTasks = message.resultado.pendingTasks || pendingTasks;
+                            updatePendingTasksList();
                             const roleModal = document.getElementById('roleModal');
                             if (roleModal) roleModal.style.display = 'none';
                         }
                         break;
                     case 'OBTENER_ESTADO':
-                        updateSessionUI(message.resultado || {});
-                        break;
+                    updateSessionUI(message.resultado || {});
+                    pendingTasks = message.resultado.pendingTasks || pendingTasks;
+                    updatePendingTasksList();
+                    break;
 
                     case 'FINALIZAR_SESION':
                         updateSessionUI({ sessionActive: false });

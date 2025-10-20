@@ -154,12 +154,16 @@ if (savedState) {
         console.log('Visibility changed:', webviewView.visible);
         if (webviewView.visible && this.pairSession.sessionActive) {
         // ✅ Enviar estado actualizado al frontend al volver a mostrarse
-        webviewView.webview.postMessage({
-            type: "PP_RESULTADO",
-            comando: "OBTENER_ESTADO",
-            resultado: this.pairSession.getSessionStatus()
-        });
-    }
+            webviewView.webview.postMessage({
+                type: "PP_RESULTADO",
+                comando: "OBTENER_ESTADO",
+                resultado: {
+                    ...this.pairSession.getSessionStatus(),
+                    pendingTasks: this.pairSession.sessionTasks,
+                    completedTasks: this.pairSession.completedTasks
+                }
+            });
+        }
     });
 
 
@@ -300,6 +304,20 @@ if (savedState) {
                         switch_time: new Date().toISOString()
                     }, this._context);
                     resultado = this.pairSession.switchRoles();
+
+                    // 🟢 Actualizar estado global (importante para persistencia)
+                    await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
+
+                    // 📨 Enviar estado completo al frontend (incluye tareas)
+                    webviewView.webview.postMessage({
+                        type: "PP_RESULTADO",
+                        comando: "CAMBIAR_ROLES",
+                        resultado: {
+                            ...resultado,
+                            pendingTasks: this.pairSession.sessionTasks,
+                            completedTasks: this.pairSession.completedTasks
+                        }
+                    });
                     break;
                     
                 case 'FINALIZAR_SESION':

@@ -58,7 +58,9 @@ class PairProgrammingSession {
             driver: this.driver,
             navigator: this.navigator,
             timeRemaining: this.turnDuration,
-            sessionActive: this.sessionActive
+            sessionActive: this.sessionActive,
+            pendingTasks: this.sessionTasks,      // 🟢 AÑADIDO
+            completedTasks: this.completedTasks
         };
     }
 
@@ -275,8 +277,8 @@ deleteTask(taskId) {
             navigator: this.navigator,
             turnStartTime: this.turnStartTime,
             timeRemaining: this.getRemainingTime(),
-            pendingTasks: this.sessionTasks.length,
-            completedTasks: this.completedTasks.length
+            pendingTasks: this.sessionTasks,
+            completedTasks: this.completedTasks
         };
     }
 }
