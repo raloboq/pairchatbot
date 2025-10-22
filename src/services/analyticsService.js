@@ -1,90 +1,171 @@
 /**
- * Servicio para gestionar la recopilación y envío de datos de Learning Analytics
+ * Servicio de Analytics para VS Code Extension
+ * ⭐ MODIFICADO: Ahora soporta tracking de 2 usuarios en pair programming
  */
 
 const vscode = require('vscode');
-const { info, error, debug } = require('../utils/logger');
-const { classifyQuery, EventTypes } = require('../models/analyticsModel');
+const axios = require('axios').default;
+const { v4: uuidv4 } = require('uuid'); // ⭐ NUEVO: Necesitas instalar: npm install uuid
 
-// URL del servicio de analytics (reemplazar con la URL real cuando esté disponible)
-//const ANALYTICS_API_URL = 'http://37.27.189.148:80/api/analytics';
-const ANALYTICS_API_URL = 'https://ktps.renelobo.com/api/analytics';
-
-// Almacenamiento local para eventos pendientes de envío
+// Variables globales
 let pendingEvents = [];
-
-// Intervalo de sincronización (en ms) - 5 minutos por defecto
-const SYNC_INTERVAL = 5 * 60 * 1000; 
-
-// Timer para sincronización periódica
-let syncTimer = null;
+let isSyncing = false;
 
 /**
- * Inicializa el servicio de analytics
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
+ * ⭐ NUEVO: Generar o recuperar ID único de usuario
  */
-function initAnalytics(context) {
-    debug('Inicializando servicio de Learning Analytics');
-    
-    // Cargar eventos pendientes almacenados previamente
-    const storedEvents = context.globalState.get('analytics-pending-events');
-    if (storedEvents && Array.isArray(storedEvents)) {
-        pendingEvents = storedEvents;
-        debug(`Cargados ${pendingEvents.length} eventos pendientes de envío`);
+function getUserId(context) {
+    let userId = context.globalState.get('analytics-user-id');
+    if (!userId) {
+        userId = uuidv4();
+        context.globalState.update('analytics-user-id', userId);
     }
-    
-    // Iniciar sincronización periódica
-    startSyncTimer(context);
-    
-    // Registrar evento de sesión cuando se cierre VS Code
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(() => {
-            syncEvents(context).catch(err => 
-                error(`Error al sincronizar eventos: ${err.message}`)
-            );
-        })
-    );
+    return userId;
 }
 
 /**
- * Inicia el temporizador para sincronización periódica
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
+ * ⭐ NUEVO: Generar o recuperar ID único de dispositivo
  */
-function startSyncTimer(context) {
-    if (syncTimer) {
-        clearInterval(syncTimer);
+function getDeviceId(context) {
+    let deviceId = context.globalState.get('analytics-device-id');
+    if (!deviceId) {
+        const os = require('os');
+        deviceId = uuidv4();
+        context.globalState.update('analytics-device-id', deviceId);
     }
-    
-    syncTimer = setInterval(() => {
-        syncEvents(context).catch(err => 
-            error(`Error al sincronizar eventos: ${err.message}`)
-        );
-    }, SYNC_INTERVAL);
-    
-    debug(`Sincronización de analytics configurada cada ${SYNC_INTERVAL / 1000} segundos`);
+    return deviceId;
 }
 
 /**
- * Registra un evento de usuario
- * @param {string} eventType - Tipo de evento
- * @param {Object} eventData - Datos del evento
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
+ * ⭐ NUEVO: Generar ID único para pair programming session
+ */
+function generatePairSessionId() {
+    return `pair_${Date.now()}_${uuidv4().substring(0, 8)}`;
+}
+
+/**
+ * ⭐ NUEVO: Generar ID único para conversación
+ */
+function generateConversationId() {
+    return `conv_${Date.now()}_${uuidv4().substring(0, 8)}`;
+}
+
+/**
+ * ⭐ NUEVO: Obtener información del workspace
+ */
+function getWorkspaceInfo() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        return { name: null, foldersCount: 0 };
+    }
+    
+    return {
+        name: workspaceFolders[0].name,
+        foldersCount: workspaceFolders.length
+    };
+}
+
+/**
+ * ⭐ NUEVO: Obtener el rol actual del usuario (driver o navigator)
+ */
+function getCurrentRole(context) {
+    const pairSessionState = context.globalState.get('pairSessionState');
+    
+    if (!pairSessionState || !pairSessionState.sessionActive) {
+        return null;
+    }
+    
+    const activeUser = pairSessionState.activeUser || pairSessionState.driver;
+    
+    if (activeUser === pairSessionState.driver) {
+        return 'driver';
+    } else if (activeUser === pairSessionState.navigator) {
+        return 'navigator';
+    }
+    
+    return null;
+}
+
+/**
+ * ⭐ NUEVO: Obtener información completa de ambos usuarios
+ */
+function getUsersInfo(context) {
+    const pairSessionState = context.globalState.get('pairSessionState');
+    
+    if (!pairSessionState || !pairSessionState.sessionActive) {
+        const authenticatedEmail = context.globalState.get('authenticatedEmail');
+        return {
+            active_user: authenticatedEmail,
+            driver: null,
+            navigator: null,
+            in_pair_session: false
+        };
+    }
+    
+    return {
+        active_user: pairSessionState.activeUser || pairSessionState.driver,
+        driver: pairSessionState.driver,
+        navigator: pairSessionState.navigator,
+        in_pair_session: true
+    };
+}
+
+/**
+ * ⭐ MODIFICADO: Función principal para registrar eventos
+ * Ahora incluye información de ambos usuarios
  */
 async function trackEvent(eventType, eventData, context) {
     try {
-        const authenticatedEmail = context.globalState.get('authenticatedEmail');
+        // ⭐ OBTENER AMBOS USUARIOS de la sesión de pair programming
+        const pairSessionState = context.globalState.get('pairSessionState');
         
-        // Crear objeto de evento
+        let active_user_email = null;
+        let driver_email = null;
+        let navigator_email = null;
+        
+        if (pairSessionState && pairSessionState.sessionActive) {
+            driver_email = pairSessionState.driver;
+            navigator_email = pairSessionState.navigator;
+            active_user_email = pairSessionState.activeUser || pairSessionState.driver;
+        } else {
+            // Si no hay sesión activa, solo hay un usuario autenticado
+            active_user_email = context.globalState.get('authenticatedEmail');
+        }
+        
+        const sessionId = context.globalState.get('current-session-id');
+        const pairSessionId = context.globalState.get('current-pair-session-id');
+        const conversationId = context.globalState.get('current-conversation-id');
+        
+        // Obtener información del workspace
+        const workspaceInfo = getWorkspaceInfo();
+        
+        // Crear objeto de evento COMPLETO
         const event = {
+            // === IDs ÚNICOS ===
+            event_id: uuidv4(),
+            device_id: getDeviceId(context),
+            
+            // === USUARIOS - AHORA REGISTRAMOS A AMBOS ===
+            active_user_email: active_user_email, // ⭐ Quién hizo la acción
+            driver_email: driver_email,           // ⭐ Quién es el driver actual
+            navigator_email: navigator_email,     // ⭐ Quién es el navigator actual
+            
+            // === IDs DE CONTEXTO ===
             event_type: eventType,
             timestamp: new Date().toISOString(),
-            user_email: authenticatedEmail || 'anonymous',
-            session_id: context.globalState.get('current-session-id') || generateSessionId(),
+            session_id: sessionId || null,
+            pair_session_id: pairSessionId || null,
+            conversation_id: conversationId || null,
+            
+            // === INFORMACIÓN DE PLATAFORMA ===
             platform_info: {
                 vscode_version: vscode.version,
-                extension_version: vscode.extensions.getExtension('your-extension-id')?.packageJSON.version || 'unknown',
-                os: process.platform
+                os: process.platform,
+                workspace_name: workspaceInfo.name,
+                workspace_folders_count: workspaceInfo.foldersCount,
             },
+            
+            // === DATOS ESPECÍFICOS DEL EVENTO ===
             data: eventData
         };
         
@@ -94,129 +175,185 @@ async function trackEvent(eventType, eventData, context) {
         // Guardar en el estado global
         await context.globalState.update('analytics-pending-events', pendingEvents);
         
-        debug(`Evento registrado: ${eventType}`);
+        console.log(`[Analytics] Evento registrado: ${eventType} por ${active_user_email || 'unknown'}`);
         
         // Intentar sincronizar si hay suficientes eventos o si es un evento importante
         if (pendingEvents.length >= 10 || isImportantEvent(eventType)) {
             syncEvents(context);
         }
     } catch (err) {
-        error(`Error al registrar evento de analytics: ${err.message}`);
+        console.error(`[Analytics] Error al registrar evento: ${err.message}`);
     }
 }
 
 /**
- * Determina si un tipo de evento es importante y debería sincronizarse inmediatamente
- * @param {string} eventType - Tipo de evento
- * @returns {boolean} - true si el evento es importante
+ * Verificar si un evento es importante (debe sincronizarse inmediatamente)
  */
 function isImportantEvent(eventType) {
     const importantEvents = [
-        'USER_LOGIN', 
-        'USER_LOGOUT', 
-        'PAIR_SESSION_START', 
-        'PAIR_SESSION_END'
+        'USER_LOGIN',
+        'USER_LOGOUT',
+        'PAIR_SESSION_START',
+        'PAIR_SESSION_END',
+        'PAIR_ROLE_SWITCH'
     ];
-    
     return importantEvents.includes(eventType);
 }
 
 /**
- * Genera un ID de sesión único
- * @returns {string} - ID de sesión
- */
-function generateSessionId() {
-    return `session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-}
-
-/**
- * Sincroniza eventos pendientes con el servidor
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
+ * ⭐ MODIFICADO: Sincronizar eventos con el servidor
  */
 async function syncEvents(context) {
-    if (pendingEvents.length === 0) {
-        debug('No hay eventos pendientes para sincronizar');
+    if (isSyncing || pendingEvents.length === 0) {
         return;
     }
     
-    debug(`Intentando sincronizar ${pendingEvents.length} eventos`);
+    isSyncing = true;
     
     try {
-        // Copia de eventos a enviar
+        const apiUrl = 'https://ktps.renelobo.com/api/analytics';
         const eventsToSync = [...pendingEvents];
         
-        const response = await fetch(ANALYTICS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 
-//                'X-API-Key': 'Lupillo07!'  // Añade esta línea
+        console.log(`[Analytics] Sincronizando ${eventsToSync.length} eventos...`);
+        
+        const response = await axios.post(apiUrl, {
+            events: eventsToSync
+        }, {
+            headers: {
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ events: eventsToSync })
+            timeout: 10000
         });
         
-        if (response.ok) {
-            // Remover eventos sincronizados exitosamente
-            pendingEvents = pendingEvents.slice(eventsToSync.length);
-            await context.globalState.update('analytics-pending-events', pendingEvents);
-            info(`Sincronizados ${eventsToSync.length} eventos correctamente`);
-        } else {
-            const errorData = await response.text();
-            throw new Error(`Error ${response.status}: ${errorData}`);
+        if (response.status === 200) {
+            // Limpiar eventos sincronizados
+            pendingEvents = [];
+            await context.globalState.update('analytics-pending-events', []);
+            console.log(`[Analytics] ✅ ${eventsToSync.length} eventos sincronizados`);
         }
-    } catch (err) {
-        error(`Error al sincronizar eventos: ${err.message}`);
-        // Los eventos permanecerán en la cola para intentar sincronizarlos después
+    } catch (error) {
+        console.error('[Analytics] ❌ Error al sincronizar eventos:', error.message);
+        
+        // Si hay demasiados eventos pendientes, eliminar los más antiguos
+        if (pendingEvents.length > 1000) {
+            pendingEvents = pendingEvents.slice(-500);
+            await context.globalState.update('analytics-pending-events', pendingEvents);
+            console.log('[Analytics] ⚠️ Eventos antiguos eliminados para evitar overflow');
+        }
+    } finally {
+        isSyncing = false;
     }
 }
 
 /**
- * Registra el inicio de una nueva sesión de usuario
- * @param {string} userEmail - Email del usuario
- * @param {vscode.ExtensionContext} context - Contexto de la extensión 
+ * Generar ID único de sesión
+ */
+function generateSessionId() {
+    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Inicializar analytics cuando se activa la extensión
+ */
+function initializeAnalytics(context) {
+    // Cargar eventos pendientes del estado global
+    const savedEvents = context.globalState.get('analytics-pending-events');
+    if (savedEvents && Array.isArray(savedEvents)) {
+        pendingEvents = savedEvents;
+        console.log(`[Analytics] ${pendingEvents.length} eventos pendientes cargados`);
+    }
+    
+    // Sincronizar periódicamente cada 5 minutos
+    setInterval(() => {
+        syncEvents(context);
+    }, 5 * 60 * 1000);
+    
+    // Sincronizar eventos pendientes al inicio
+    if (pendingEvents.length > 0) {
+        setTimeout(() => syncEvents(context), 2000);
+    }
+}
+
+/**
+ * ⭐ MODIFICADO: Trackear inicio de sesión
  */
 function trackSessionStart(userEmail, context) {
     const sessionId = generateSessionId();
     context.globalState.update('current-session-id', sessionId);
     
     trackEvent('SESSION_START', {
-        user_email: userEmail,
         session_id: sessionId
     }, context);
     
-    return sessionId;
+    console.log(`[Analytics] Sesión iniciada: ${sessionId}`);
 }
 
 /**
- * Registra el fin de una sesión de usuario
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
+ * Trackear fin de sesión
  */
 function trackSessionEnd(context) {
     const sessionId = context.globalState.get('current-session-id');
-    if (!sessionId) return;
     
     trackEvent('SESSION_END', {
-        session_id: sessionId,
-        duration_ms: Date.now() - new Date(sessionId.split('_')[1]).getTime()
+        session_id: sessionId
     }, context);
     
-    // Limpiar ID de sesión actual
-    context.globalState.update('current-session-id', undefined);
+    context.globalState.update('current-session-id', null);
+    console.log(`[Analytics] Sesión finalizada: ${sessionId}`);
 }
 
 /**
- * Registra interacciones de chat
- * @param {string} messageType - Tipo de mensaje (user_query, bot_response)
- * @param {string} messageContent - Contenido del mensaje
- * @param {boolean} includedCode - Si se incluyó código en el mensaje
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
+ * ⭐ MODIFICADO: Trackear interacciones de chat con información completa de usuarios
  */
-function trackChatInteraction(messageType, messageContent, includedCode, context) {
+function trackChatInteraction(messageType, messageContent, includedCode, context, metadata = {}) {
+    // Obtener o crear conversation_id
+    let conversationId = context.globalState.get('current-conversation-id');
+    if (!conversationId) {
+        conversationId = generateConversationId();
+        context.globalState.update('current-conversation-id', conversationId);
+    }
+    
+    // Obtener contador de mensajes
+    const messageOrder = context.globalState.get('conversation-message-count') || 0;
+    context.globalState.update('conversation-message-count', messageOrder + 1);
+    
+    // ⭐ OBTENER INFORMACIÓN COMPLETA DE USUARIOS
+    const usersInfo = getUsersInfo(context);
+    const pairSessionId = context.globalState.get('current-pair-session-id');
+    
     const eventData = {
+        // === IDs ===
+        message_id: uuidv4(),
+        conversation_id: conversationId,
+        message_order: messageOrder,
+        parent_message_id: metadata.parentMessageId || null,
+        
+        // === USUARIOS - INFORMACIÓN COMPLETA ===
+        author_email: usersInfo.active_user,    // ⭐ Quién escribió el mensaje
+        author_role: getCurrentRole(context),    // ⭐ driver o navigator
+        driver_email: usersInfo.driver,          // ⭐ Quién es el driver
+        navigator_email: usersInfo.navigator,    // ⭐ Quién es el navigator
+        
+        // === CONTENIDO ===
         message_type: messageType,
+        message_content: messageContent,
         message_length: messageContent.length,
+        
+        // === CÓDIGO ===
         included_code: includedCode || false,
+        code_language: metadata.codeLanguage || null,
+        code_lines_count: metadata.codeLinesCount || null,
+        
+        // === TIMING ===
         timestamp: new Date().toISOString(),
-        // Add the full message content to be sent to the analytics service
-        message_content: messageContent
+        response_time_ms: metadata.responseTimeMs || null,
+        
+        // === CONTEXTO DE PAIR PROGRAMMING ===
+        in_pair_session: usersInfo.in_pair_session,
+        pair_session_id: pairSessionId || null,
+        
+        // === CLASIFICACIÓN ===
+        query_category: null
     };
     
     // Si es una consulta del usuario, clasificarla
@@ -224,87 +361,121 @@ function trackChatInteraction(messageType, messageContent, includedCode, context
         eventData.query_category = classifyQuery(messageContent);
     }
     
-    // Log para depuración
-    debug(`Registrando interacción de chat: ${messageType}`);
+    console.log(`[Analytics] Chat: ${messageType} por ${usersInfo.active_user} (rol: ${getCurrentRole(context)})`);
     
-    // Track usando el tipo de evento CHAT_INTERACTION
     trackEvent('CHAT_INTERACTION', eventData, context);
     
     // Forzar sincronización para interacciones de chat
     syncEvents(context).catch(err => 
-        error(`Error al sincronizar después de interacción de chat: ${err.message}`)
+        console.error(`[Analytics] Error al sincronizar después de chat: ${err.message}`)
     );
+    
+    // Retornar el message_id para poder usarlo como parent_message_id
+    return eventData.message_id;
 }
-/*function trackChatInteraction(messageType, messageContent, includedCode, context) {
-    const eventData = {
-        message_type: messageType,
-        message_length: messageContent.length,
-        included_code: includedCode || false,
+
+/**
+ * Clasificar tipo de consulta del usuario
+ */
+function classifyQuery(messageContent) {
+    const lowerMessage = messageContent.toLowerCase();
+    
+    if (lowerMessage.includes('error') || lowerMessage.includes('bug') || lowerMessage.includes('problema')) {
+        return 'CODE_DEBUGGING';
+    } else if (lowerMessage.includes('cómo') || lowerMessage.includes('como') || lowerMessage.includes('explicar')) {
+        return 'EXPLANATION_REQUEST';
+    } else if (lowerMessage.includes('ejemplo') || lowerMessage.includes('muestra')) {
+        return 'CODE_EXAMPLE_REQUEST';
+    } else if (lowerMessage.includes('mejor') || lowerMessage.includes('optimizar')) {
+        return 'CODE_IMPROVEMENT';
+    } else if (lowerMessage.includes('sintaxis') || lowerMessage.includes('usar')) {
+        return 'SYNTAX_HELP';
+    }
+    
+    return 'GENERAL_QUERY';
+}
+
+/**
+ * ⭐ MODIFICADO: Trackear eventos de pair programming
+ */
+function trackPairProgrammingEvent(eventType, sessionData, context) {
+    let pairSessionId = context.globalState.get('current-pair-session-id');
+    
+    // Si es inicio de sesión, crear nuevo ID
+    if (eventType === 'SESSION_START') {
+        pairSessionId = generatePairSessionId();
+        context.globalState.update('current-pair-session-id', pairSessionId);
+        context.globalState.update('pair-session-switches-count', 0);
+        context.globalState.update('pair-session-start-time', Date.now());
+    }
+    
+    // Enriquecer datos según el tipo de evento
+    const enrichedData = {
+        ...sessionData,
+        pair_session_id: pairSessionId
+    };
+    
+    if (eventType === 'SESSION_START') {
+        enrichedData.expected_duration_minutes = 15;
+        enrichedData.workspace_name = getWorkspaceInfo().name;
+    }
+    
+    if (eventType === 'ROLE_SWITCH') {
+        const switchesCount = context.globalState.get('pair-session-switches-count') || 0;
+        context.globalState.update('pair-session-switches-count', switchesCount + 1);
+        
+        enrichedData.switch_number = switchesCount + 1;
+        enrichedData.time_since_session_start = Date.now() - (context.globalState.get('pair-session-start-time') || Date.now());
+        enrichedData.new_driver = sessionData.driver; // ⭐ NUEVO
+        enrichedData.new_navigator = sessionData.navigator; // ⭐ NUEVO
+    }
+    
+    if (eventType === 'SESSION_END') {
+        enrichedData.total_switches = context.globalState.get('pair-session-switches-count') || 0;
+        
+        // Limpiar IDs de sesión
+        context.globalState.update('current-pair-session-id', null);
+        context.globalState.update('pair-session-switches-count', 0);
+        context.globalState.update('pair-session-start-time', null);
+    }
+    
+    trackEvent(`PAIR_${eventType}`, enrichedData, context);
+}
+
+/**
+ * Trackear eventos de tareas
+ */
+function trackTaskEvent(eventType, taskData, context) {
+    const pairSessionId = context.globalState.get('current-pair-session-id');
+    const currentRole = getCurrentRole(context);
+    
+    const enrichedData = {
+        ...taskData,
+        task_id: taskData.task_id || uuidv4(),
+        pair_session_id: pairSessionId,
+        current_role: currentRole,
         timestamp: new Date().toISOString()
     };
     
-    // Si es una consulta del usuario, clasificarla
-    if (messageType === 'user_query') {
-        eventData.query_category = classifyQuery(messageContent);
+    if (eventType === 'CREATE') {
+        enrichedData.created_at_timestamp = Date.now();
     }
     
-   // Log para depuración
-   debug(`Registrando interacción de chat: ${messageType}`);
-    
-   // Track usando el tipo de evento CHAT_INTERACTION
-   trackEvent('CHAT_INTERACTION', eventData, context);
-   
-   // Forzar sincronización para interacciones de chat
-   syncEvents(context).catch(err => 
-       error(`Error al sincronizar después de interacción de chat: ${err.message}`)
-   );
-}*/
-
-/**
- * Registra eventos de sesiones de pair programming
- * @param {string} eventType - Tipo de evento de pair programming
- * @param {Object} sessionData - Datos de la sesión
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
- */
-function trackPairProgrammingEvent(eventType, sessionData, context) {
-    trackEvent(`PAIR_${eventType}`, sessionData, context);
+    trackEvent(`TASK_${eventType}`, enrichedData, context);
 }
 
-/**
- * Registra eventos de tareas de pair programming
- * @param {string} eventType - Tipo de evento (ADD, COMPLETE)
- * @param {Object} taskData - Datos de la tarea
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
- */
-function trackTaskEvent(eventType, taskData, context) {
-    trackEvent(`TASK_${eventType}`, taskData, context);
-}
-
-/**
- * Finaliza el servicio de analytics y sincroniza eventos pendientes
- * @param {vscode.ExtensionContext} context - Contexto de la extensión
- */
-async function finalizeAnalytics(context) {
-    if (syncTimer) {
-        clearInterval(syncTimer);
-        syncTimer = null;
-    }
-    
-    // Intentar sincronizar eventos pendientes
-    await syncEvents(context).catch(err => 
-        error(`Error al sincronizar eventos finales: ${err.message}`)
-    );
-    
-    debug('Servicio de analytics finalizado');
-}
-
+// Exportar funciones
 module.exports = {
-    initAnalytics,
+    initializeAnalytics,
     trackEvent,
     trackSessionStart,
     trackSessionEnd,
     trackChatInteraction,
     trackPairProgrammingEvent,
     trackTaskEvent,
-    finalizeAnalytics
+    syncEvents,
+    getUsersInfo,
+    getCurrentRole,
+    generatePairSessionId,
+    generateConversationId
 };

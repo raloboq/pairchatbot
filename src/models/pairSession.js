@@ -1,13 +1,15 @@
 /**
- * Clase para gestionar la sesión de pair programming
+ * Modelo de sesión de Pair Programming
+ * ⭐ MODIFICADO: Ahora incluye activeUser para trackear quién tiene el control
  */
+
 class PairProgrammingSession {
     constructor() {
         this.driver = null;
         this.navigator = null;
         this.sessionActive = false;
         this.turnStartTime = null;
-        this.turnDuration = 1 * 60 * 1000; // 15 minutos en milisegundos
+        this.turnDuration = 15 * 60 * 1000; // 15 minutos en milisegundos
         this.timer = null;
         this.sessionTasks = [];
         this.completedTasks = [];
@@ -15,256 +17,54 @@ class PairProgrammingSession {
             onTimerEnded: null,
             onTimerWarning: null
         };
+        
+        // ⭐ NUEVO: Trackear quién es el "active user" (el que controla el teclado)
+        this.activeUser = null; // Será el driver actual
     }
-
+    
     /**
-     * Configurar callbacks para eventos del temporizador
-     * @param {Object} callbacks - Callbacks para eventos del timer
-     */
-    setTimerCallbacks(callbacks) {
-        this.timerCallbacks = { ...this.timerCallbacks, ...callbacks };
-    }
-
-    /**
-     * Iniciar una sesión con dos participantes
-     * @param {string} driverEmail - Email del piloto
-     * @param {string} navigatorEmail - Email del navegante
-     * @returns {Object} - Estado de la sesión
+     * ⭐ MODIFICADO: Iniciar sesión y establecer activeUser
      */
     startSession(driverEmail, navigatorEmail) {
         this.driver = driverEmail;
         this.navigator = navigatorEmail;
         this.sessionActive = true;
+        this.activeUser = driverEmail; // ⭐ NUEVO: El driver es quien controla
         this.turnStartTime = Date.now();
         this.startTimer();
+        
         return {
             driver: this.driver,
             navigator: this.navigator,
+            activeUser: this.activeUser, // ⭐ NUEVO
             timeRemaining: this.turnDuration,
             sessionActive: this.sessionActive
         };
     }
-
+    
     /**
-     * Cambiar roles entre driver y navigator
-     * @returns {Object} - Estado actualizado de la sesión
+     * ⭐ MODIFICADO: Cambiar roles y actualizar activeUser
      */
     switchRoles() {
         // Intercambiar roles
         [this.driver, this.navigator] = [this.navigator, this.driver];
+        this.activeUser = this.driver; // ⭐ NUEVO: Actualizar quien tiene control
         this.turnStartTime = Date.now();
         this.restartTimer();
+        
         return {
             driver: this.driver,
             navigator: this.navigator,
+            activeUser: this.activeUser, // ⭐ NUEVO
             timeRemaining: this.turnDuration,
             sessionActive: this.sessionActive,
-            pendingTasks: this.sessionTasks,      // 🟢 AÑADIDO
-            completedTasks: this.completedTasks
-        };
-    }
-
-    /**
-     * Finalizar la sesión
-     * @returns {Object} - Resumen de la sesión
-     */
-    endSession() {
-        this.clearTimer();
-        this.sessionActive = false;
-        const summary = this.generateSessionSummary();
-        
-        // Añadimos sessionActive: false al resumen para mantener consistencia
-        summary.sessionActive = false;
-        
-        this.driver = null;
-        this.navigator = null;
-        this.sessionTasks = [];
-        this.completedTasks = [];
-        return summary;
-    }
-
-    /**
-     * Iniciar temporizador para cambio de roles
-     */
-    startTimer() {
-        this.clearTimer(); // Limpiar cualquier timer anterior
-        this.timer = setInterval(() => {
-            // Lógica para notificar cuando queden 5, 2 y 1 minuto
-            const timeElapsed = Date.now() - this.turnStartTime;
-            const timeRemaining = this.turnDuration - timeElapsed;
-            
-            if (timeRemaining <= 0) {
-                this.clearTimer();
-                if (this.timerCallbacks.onTimerEnded) {
-                    this.timerCallbacks.onTimerEnded({
-                        type: 'TIMER_ENDED',
-                        message: 'Es hora de cambiar roles. El navegante ahora debería ser el piloto.'
-                    });
-                }
-            } else if (timeRemaining <= 60000) { // 1 minuto
-                if (this.timerCallbacks.onTimerWarning) {
-                    this.timerCallbacks.onTimerWarning({
-                        type: 'TIMER_WARNING',
-                        message: 'Queda 1 minuto para cambiar roles.',
-                        timeRemaining
-                    });
-                }
-            } else if (timeRemaining <= 120000) { // 2 minutos
-                if (this.timerCallbacks.onTimerWarning) {
-                    this.timerCallbacks.onTimerWarning({
-                        type: 'TIMER_WARNING',
-                        message: 'Quedan 2 minutos para cambiar roles.',
-                        timeRemaining
-                    });
-                }
-            } else if (timeRemaining <= 300000) { // 5 minutos
-                if (this.timerCallbacks.onTimerWarning) {
-                    this.timerCallbacks.onTimerWarning({
-                        type: 'TIMER_WARNING',
-                        message: 'Quedan 5 minutos para cambiar roles.',
-                        timeRemaining
-                    });
-                }
-            }
-        }, 30000); // Verificar cada 30 segundos
-    }
-
-    /**
-     * Reiniciar el temporizador
-     */
-    restartTimer() {
-        this.clearTimer();
-        this.startTimer();
-    }
-
-    /**
-     * Limpiar el temporizador
-     */
-    clearTimer() {
-        if (this.timer) {
-            clearInterval(this.timer);
-            this.timer = null;
-        }
-    }
-
-    /**
-     * Obtener tiempo restante del turno actual
-     * @returns {number} - Milisegundos restantes
-     */
-    getRemainingTime() {
-        if (!this.sessionActive || !this.turnStartTime) return 0;
-        const timeElapsed = Date.now() - this.turnStartTime;
-        return Math.max(0, this.turnDuration - timeElapsed);
-    }
-
-    /**
-     * Agregar una tarea a la sesión
-     * @param {string} task - Descripción de la tarea
-     * @returns {Array} - Lista actualizada de tareas
-     */
-    addTask(task) {
-        this.sessionTasks.push({
-            id: Date.now(),
-            description: task,
-            completed: false,
-            createdAt: new Date().toISOString()
-        });
-        return this.sessionTasks;
-    }
-
-    /**
-     * Marcar una tarea como completada
-     * @param {number} taskId - ID de la tarea
-     * @returns {Object} - Listas actualizadas de tareas
-     */
-    completeTask(taskId) {
-        const taskIndex = this.sessionTasks.findIndex(task => task.id === taskId);
-        if (taskIndex !== -1) {
-            this.sessionTasks[taskIndex].completed = true;
-            this.sessionTasks[taskIndex].completedAt = new Date().toISOString();
-            this.completedTasks.push(this.sessionTasks[taskIndex]);
-            this.sessionTasks.splice(taskIndex, 1);
-        }
-        return {
             pendingTasks: this.sessionTasks,
             completedTasks: this.completedTasks
         };
     }
-
+    
     /**
-     * Editar una tarea pendiente
-     * @param {number} taskId - ID de la tarea
-     * @param {string} newDescription - Nueva descripción
-     * @returns {Object} - Listas actualizadas de tareas
-  /**
- * Editar una tarea pendiente
- * @param {number} taskId - ID de la tarea
- * @param {string} newDescription - Nueva descripción
- * @returns {Object} - Lista actualizada de tareas pendientes
- */
-editTask(taskId, newDescription) {
-    const task = this.sessionTasks.find(t => t.id === taskId);
-    if (!task) {
-        throw new Error('Tarea no encontrada');
-    }
-    task.description = newDescription;
-    // Las tareas en sessionTasks son TODAS pendientes
-    // Las completadas están en completedTasks
-    return {
-        pendingTasks: this.sessionTasks,  // ← Cambio aquí: sin filtro
-        completedTasks: this.completedTasks  // ← Cambio aquí: usar la lista existente
-    };
-}
-
-/**
- * Eliminar una tarea pendiente
- * @param {number} taskId - ID de la tarea
- * @returns {Object} - Lista actualizada de tareas pendientes
- */
-deleteTask(taskId) {
-    const index = this.sessionTasks.findIndex(t => t.id === taskId);
-    if (index !== -1) {
-        this.sessionTasks.splice(index, 1);
-    }
-    return {
-        pendingTasks: this.sessionTasks,  // ← Cambio aquí
-        completedTasks: this.completedTasks  // ← Agregar esto
-    };
-}
-    /**
-     * Generar resumen de la sesión
-     * @returns {Object} - Datos del resumen
-     */
-    generateSessionSummary() {
-        return {
-            completedTasks: this.completedTasks,
-            pendingTasks: this.sessionTasks,
-            duration: this.turnStartTime ? Date.now() - this.turnStartTime : 0,
-            sessionActive: this.sessionActive
-        };
-    }
-
-    /**
-     * Verificar si un usuario específico es el driver
-     * @param {string} email - Email del usuario
-     * @returns {boolean}
-     */
-    isDriver(email) {
-        return this.sessionActive && this.driver === email;
-    }
-
-    /**
-     * Verificar si un usuario específico es el navigator
-     * @param {string} email - Email del usuario
-     * @returns {boolean}
-     */
-    isNavigator(email) {
-        return this.sessionActive && this.navigator === email;
-    }
-
-    /**
-     * Obtener el estado actual de la sesión
-     * @returns {Object} - Estado de la sesión
+     * ⭐ MODIFICADO: Obtener estado de la sesión incluyendo activeUser
      */
     getSessionStatus() {
         if (!this.sessionActive) {
@@ -275,12 +75,124 @@ deleteTask(taskId) {
             sessionActive: true,
             driver: this.driver,
             navigator: this.navigator,
+            activeUser: this.activeUser, // ⭐ NUEVO
             turnStartTime: this.turnStartTime,
             timeRemaining: this.getRemainingTime(),
             pendingTasks: this.sessionTasks,
             completedTasks: this.completedTasks
         };
     }
+    
+    /**
+     * ⭐ NUEVO: Obtener el usuario activo (quien tiene el control)
+     */
+    getActiveUser() {
+        return this.sessionActive ? this.activeUser : null;
+    }
+    
+    /**
+     * ⭐ NUEVO: Obtener ambos usuarios y quien está activo
+     */
+    getBothUsers() {
+        return {
+            driver: this.driver,
+            navigator: this.navigator,
+            activeUser: this.activeUser // El driver es quien controla
+        };
+    }
+    
+    endSession() {
+        this.stopTimer();
+        const sessionData = {
+            driver: this.driver,
+            navigator: this.navigator,
+            completedTasks: this.completedTasks,
+            pendingTasks: this.sessionTasks,
+            totalDuration: Date.now() - this.turnStartTime
+        };
+        
+        // Limpiar estado
+        this.driver = null;
+        this.navigator = null;
+        this.activeUser = null; // ⭐ NUEVO: Limpiar también activeUser
+        this.sessionActive = false;
+        this.sessionTasks = [];
+        this.completedTasks = [];
+        
+        return sessionData;
+    }
+    
+    startTimer() {
+        this.stopTimer(); // Detener timer anterior si existe
+        
+        const warningTime = this.turnDuration - (2 * 60 * 1000); // 2 minutos antes
+        
+        // Timer para la advertencia
+        const warningTimer = setTimeout(() => {
+            if (this.timerCallbacks.onTimerWarning) {
+                this.timerCallbacks.onTimerWarning();
+            }
+        }, warningTime);
+        
+        // Timer principal
+        this.timer = setTimeout(() => {
+            clearTimeout(warningTimer);
+            if (this.timerCallbacks.onTimerEnded) {
+                this.timerCallbacks.onTimerEnded();
+            }
+        }, this.turnDuration);
+    }
+    
+    restartTimer() {
+        this.startTimer();
+    }
+    
+    stopTimer() {
+        if (this.timer) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+    }
+    
+    getRemainingTime() {
+        if (!this.turnStartTime) return 0;
+        const elapsed = Date.now() - this.turnStartTime;
+        return Math.max(0, this.turnDuration - elapsed);
+    }
+    
+    addTask(task) {
+        this.sessionTasks.push(task);
+    }
+    
+    completeTask(taskId) {
+        const taskIndex = this.sessionTasks.findIndex(t => t.id === taskId);
+        if (taskIndex !== -1) {
+            const task = this.sessionTasks.splice(taskIndex, 1)[0];
+            this.completedTasks.push({
+                ...task,
+                completedAt: Date.now()
+            });
+            return task;
+        }
+        return null;
+    }
+    
+    editTask(taskId, newDescription) {
+        const task = this.sessionTasks.find(t => t.id === taskId);
+        if (task) {
+            task.description = newDescription;
+            return task;
+        }
+        return null;
+    }
+    
+    deleteTask(taskId) {
+        const taskIndex = this.sessionTasks.findIndex(t => t.id === taskId);
+        if (taskIndex !== -1) {
+            return this.sessionTasks.splice(taskIndex, 1)[0];
+        }
+        return null;
+    }
 }
 
-module.exports = { PairProgrammingSession };
+module.exports = PairProgrammingSession;

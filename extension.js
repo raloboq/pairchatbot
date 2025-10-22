@@ -66,7 +66,7 @@ const vscode = require('vscode');
 const { SidebarProvider } = require('./src/ui/sidebarProvider');
 const { registerPairCommands } = require('./src/commands/pairCommands');
 const { registerAnalyticsCommands } = require('./src/commands/analyticsCommands');
-const { initAnalytics, finalizeAnalytics, trackEvent } = require('./src/services/analyticsService');
+const { initializeAnalytics, trackEvent } = require('./src/services/analyticsService');
 const { startCodeSnapshotService, stopCodeSnapshotService, captureManualSnapshot } = require('./src/services/codeSnapshotService');
 const { info } = require('./src/utils/logger');
 
@@ -82,7 +82,7 @@ async function activate(context) {
     await context.globalState.update('chatHistory', undefined);
 
     // Inicializar el servicio de analytics
-    initAnalytics(context);
+     initializeAnalytics(context);
     
     // Registrar evento de activación
     trackEvent('EXTENSION_ACTIVATED', {
@@ -174,7 +174,7 @@ async function deactivate(context) {
             deactivation_time: new Date().toISOString()
         }, context);
         
-        await finalizeAnalytics(context);
+       console.log('Extensión desactivada');
         
     }
 }
