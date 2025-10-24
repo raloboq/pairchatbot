@@ -99,6 +99,15 @@ async function captureCodeSnapshot(context) {
             } : null
         };
         
+console.log('[CodeSnapshot] 📤 Enviando snapshot a analytics...');
+console.log('   - Archivo:', fileName.split('/').pop());
+console.log('   - Lenguaje:', languageId);
+console.log('   - Líneas:', lineCount);
+console.log('   - Caracteres:', codeContent.length);
+console.log('   - code_content presente:', !!codeContent);
+console.log('   - Primeros 50 chars:', codeContent.substring(0, 50));
+
+
         // MODIFICADO: Estructurar los datos según lo que espera el servidor
         // Registrar evento con contenido del código y metadatos en la estructura correcta
         trackEvent('CODE_SNAPSHOT', {

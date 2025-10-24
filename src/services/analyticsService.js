@@ -1,11 +1,14 @@
 /**
  * Servicio de Analytics para VS Code Extension
- * ⭐ MODIFICADO: Ahora soporta tracking de 2 usuarios en pair programming
+ * ⭐ VERSIÓN MEJORADA: Manejo especial para CODE_SNAPSHOT
  */
 
 const vscode = require('vscode');
 const axios = require('axios').default;
-const { v4: uuidv4 } = require('uuid'); // ⭐ NUEVO: Necesitas instalar: npm install uuid
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 // Variables globales
 let pendingEvents = [];
@@ -29,7 +32,6 @@ function getUserId(context) {
 function getDeviceId(context) {
     let deviceId = context.globalState.get('analytics-device-id');
     if (!deviceId) {
-        const os = require('os');
         deviceId = uuidv4();
         context.globalState.update('analytics-device-id', deviceId);
     }
@@ -112,7 +114,7 @@ function getUsersInfo(context) {
 
 /**
  * ⭐ MODIFICADO: Función principal para registrar eventos
- * Ahora incluye información de ambos usuarios
+ * Ahora incluye información de ambos usuarios y manejo especial para CODE_SNAPSHOT
  */
 async function trackEvent(eventType, eventData, context) {
     try {
@@ -169,10 +171,27 @@ async function trackEvent(eventType, eventData, context) {
             data: eventData
         };
         
-        // Agregar a la cola de eventos pendientes
+        // ✅ NUEVO: Manejo especial para CODE_SNAPSHOT
+        if (eventType === 'CODE_SNAPSHOT') {
+            console.log('[Analytics] 🔍 CODE_SNAPSHOT detectado');
+            console.log('   - Tiene code_content:', !!event.data?.code_content);
+            console.log('   - Tamaño:', event.data?.code_content?.length || 0, 'caracteres');
+            
+            // NO agregar a pendingEvents (es muy grande para globalState)
+            // Enviarlo inmediatamente
+            const success = await syncSingleEvent(event, context);
+            
+            if (!success) {
+                console.error('[Analytics] ❌ Error al enviar CODE_SNAPSHOT, no se reintentará');
+            }
+            
+            return;
+        }
+        
+        // Para otros eventos, agregar a la cola normal
         pendingEvents.push(event);
         
-        // Guardar en el estado global
+        // Guardar en el estado global (sin CODE_SNAPSHOT que son muy grandes)
         await context.globalState.update('analytics-pending-events', pendingEvents);
         
         console.log(`[Analytics] Evento registrado: ${eventType} por ${active_user_email || 'unknown'}`);
@@ -201,6 +220,54 @@ function isImportantEvent(eventType) {
 }
 
 /**
+ * ✅ NUEVO: Sincronizar un solo evento (para CODE_SNAPSHOT)
+ */
+async function syncSingleEvent(event, context) {
+    try {
+        const apiUrl = 'https://ktps.renelobo.com/api/analytics';
+        
+        console.log(`[Analytics] Enviando ${event.event_type} inmediatamente...`);
+        
+        // ✅ DEBUG: Guardar evento en archivo temporal
+        try {
+            const debugPath = path.join(os.tmpdir(), `leia-event-${event.event_id}.json`);
+            fs.writeFileSync(debugPath, JSON.stringify(event, null, 2));
+            console.log('[Analytics] 🐛 Evento guardado en:', debugPath);
+        } catch (debugError) {
+            console.log('[Analytics] ⚠️  No se pudo guardar debug file:', debugError.message);
+        }
+        
+        const response = await axios.post(apiUrl, {
+            events: [event]  // Array con un solo evento
+        }, {
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            timeout: 30000,  // 30 segundos
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
+        
+        if (response.status === 200) {
+            console.log(`[Analytics] ✅ ${event.event_type} enviado exitosamente`);
+            return true;
+        }
+        
+        return false;
+        
+    } catch (error) {
+        console.error(`[Analytics] ❌ Error al enviar evento individual:`, error.message);
+        
+        if (error.response) {
+            console.error('[Analytics] Response status:', error.response.status);
+            console.error('[Analytics] Response data:', JSON.stringify(error.response.data).substring(0, 500));
+        }
+        
+        return false;
+    }
+}
+
+/**
  * ⭐ MODIFICADO: Sincronizar eventos con el servidor
  */
 async function syncEvents(context) {
@@ -216,13 +283,21 @@ async function syncEvents(context) {
         
         console.log(`[Analytics] Sincronizando ${eventsToSync.length} eventos...`);
         
+        // ✅ DEBUG: Verificar si hay CODE_SNAPSHOT (no debería)
+        const hasCodeSnapshot = eventsToSync.some(e => e.event_type === 'CODE_SNAPSHOT');
+        if (hasCodeSnapshot) {
+            console.log('[Analytics] ⚠️  WARNING: CODE_SNAPSHOT en batch (no debería pasar)');
+        }
+        
         const response = await axios.post(apiUrl, {
             events: eventsToSync
         }, {
             headers: {
                 'Content-Type': 'application/json'
             },
-            timeout: 10000
+            timeout: 30000,  // 30 segundos
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
         });
         
         if (response.status === 200) {
@@ -233,6 +308,12 @@ async function syncEvents(context) {
         }
     } catch (error) {
         console.error('[Analytics] ❌ Error al sincronizar eventos:', error.message);
+        
+        // ✅ Log del error completo si es de axios
+        if (error.response) {
+            console.error('[Analytics] Response status:', error.response.status);
+            console.error('[Analytics] Response data:', JSON.stringify(error.response.data).substring(0, 500));
+        }
         
         // Si hay demasiados eventos pendientes, eliminar los más antiguos
         if (pendingEvents.length > 1000) {
@@ -426,8 +507,8 @@ function trackPairProgrammingEvent(eventType, sessionData, context) {
         
         enrichedData.switch_number = switchesCount + 1;
         enrichedData.time_since_session_start = Date.now() - (context.globalState.get('pair-session-start-time') || Date.now());
-        enrichedData.new_driver = sessionData.driver; // ⭐ NUEVO
-        enrichedData.new_navigator = sessionData.navigator; // ⭐ NUEVO
+        enrichedData.new_driver = sessionData.driver;
+        enrichedData.new_navigator = sessionData.navigator;
     }
     
     if (eventType === 'SESSION_END') {

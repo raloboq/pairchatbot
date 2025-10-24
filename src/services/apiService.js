@@ -1,8 +1,8 @@
 /**
  * URL base para la API
  */
-//const API_URL = 'https://pairchatbot-api.vercel.app/api/chat';
-const API_URL = 'http:/localhost:3000/api/chat';
+const API_URL = 'https://pairchatbot-api.vercel.app/api/chat';
+//const API_URL = 'http:/localhost:3000/api/chat';
 
 /**
  * Envía una solicitud al servidor de chat
