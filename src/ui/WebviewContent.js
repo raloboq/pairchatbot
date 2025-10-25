@@ -214,7 +214,7 @@
                     border:1px solid var(--input-border);
                     border-radius:6px;
                     background: var(--input-bg);
-                }
+                }AUTH_SUCCESS
                 .task-item {
                     padding:8px;
                     border-bottom:1px solid var(--input-border);
@@ -1106,161 +1106,219 @@
     }
 
     /* ---------------------- MENSAJES DEL HOST ---------------------- */
-    window.addEventListener('message', event => {
-        const message = event.data;
-        switch (message.type) {
-            case 'restoreSession':
-                console.log('[DEBUG] Received restoreSession event. Data:', message);
-                if (message.sessionState && message.sessionState.driver) {
-                    // 1. Marcar como autenticado
-                    isAuthenticated = true;
-                    vscode.setState({ isAuthenticated: true });
+    // ============================================================
+window.addEventListener('message', event => {
+    const message = event.data;
+    console.log('📩 Mensaje recibido:', message.type); // Debug temporal
+    
+    switch (message.type) {
+        case 'restoreSession':
+            console.log('[DEBUG] Received restoreSession event. Data:', message);
+            if (message.sessionState && message.sessionState.driver) {
+                // 1. Marcar como autenticado
+                isAuthenticated = true;
+                vscode.setState({ isAuthenticated: true });
 
-                    // 2. Mostrar la pantalla de la aplicación
-                    if (loginScreen) loginScreen.style.display = 'none';
-                    if (appScreen) appScreen.style.display = 'flex';
-                    
-                    // 3. Actualizar el email del usuario
-                    if (userEmailDisplay) {
-                        userEmailDisplay.textContent = message.sessionState.driver;
-                    }
-
-                    // 4. Restaurar el estado de la sesión de Pair Programming
-                    updateSessionUI(message.sessionState);
-
-                    // 5. Restaurar el historial de chat
-                    if (message.chatHistory && Array.isArray(message.chatHistory)) {
-                        // Limpiar chat actual antes de restaurar
-                        const welcomeMessage = chatMessages.querySelector('.welcome-container');
-                        chatMessages.innerHTML = '';
-                        if (welcomeMessage) chatMessages.appendChild(welcomeMessage);
-                        
-                        message.chatHistory.forEach(msg => {
-                            agregarMensaje(msg.text, msg.from);
-                        });
-                    }
+                // 2. Mostrar la pantalla de la aplicación
+                if (loginScreen) loginScreen.style.display = 'none';
+                if (appScreen) appScreen.style.display = 'flex';
+                
+                // 3. Actualizar el email del usuario
+                if (userEmailDisplay) {
+                    userEmailDisplay.textContent = message.sessionState.driver;
                 }
-                break;
-            case 'RESTORE_CHAT':
-                if (message.mensajes && Array.isArray(message.mensajes)) {
-                    message.mensajes.forEach(msg => {
+
+                // 4. Restaurar el estado de la sesión de Pair Programming
+                updateSessionUI(message.sessionState);
+
+                // 5. Restaurar el historial de chat
+                if (message.chatHistory && Array.isArray(message.chatHistory)) {
+                    // Limpiar chat actual antes de restaurar
+                    const welcomeMessage = chatMessages.querySelector('.welcome-container');
+                    chatMessages.innerHTML = '';
+                    if (welcomeMessage) chatMessages.appendChild(welcomeMessage);
+                    
+                    message.chatHistory.forEach(msg => {
                         agregarMensaje(msg.text, msg.from);
                     });
                 }
-                break;
-            case 'AUTH_SUCCESS':
-                isAuthenticated = true;
-                vscode.setState({ isAuthenticated: true });
-                if (studentEmailInput) studentEmailInput.disabled = true;
-                if (nextBtn) nextBtn.style.display = 'none';
-                if (navigatorField) {
-                    navigatorField.classList.remove('hidden');
-                    const navInput = document.getElementById('navigatorEmailInput');
-                    if (navInput) navInput.focus();
-                }
+            }
+            break;
+
+        case 'RESTORE_CHAT':
+            if (message.mensajes && Array.isArray(message.mensajes)) {
+                message.mensajes.forEach(msg => {
+                    agregarMensaje(msg.text, msg.from);
+                });
+            }
+            break;
+
+        case 'AUTH_SUCCESS':
+            console.log('✅ AUTH_SUCCESS recibido');
+            
+            isAuthenticated = true;
+            vscode.setState({ isAuthenticated: true });
+            
+            // Deshabilitar el input del piloto
+            if (studentEmailInput) studentEmailInput.disabled = true;
+            
+            // Ocultar el botón "Siguiente"
+            if (nextBtn) nextBtn.style.display = 'none';
+            
+            // Mostrar el campo del navegante
+            if (navigatorField) {
+                navigatorField.classList.remove('hidden');
+                const navInput = document.getElementById('navigatorEmailInput');
+                if (navInput) navInput.focus();
+            }
+            
+            // ✅ RESETEAR BOTONES
+            resetLoginButtons();
+            
+            // Limpiar mensajes de error
+            if (loginError) { 
+                loginError.textContent = ''; 
+                loginError.style.display = 'none'; 
+            }
+            
+            console.log('✅ Campo de navegante mostrado');
+            break;
+
+        case 'LOGOUT_SUCCESS':
+            resetUI();
+            break;
+
+        case 'BOT_RESPONSE':
+            agregarMensaje(message.mensaje, 'bot');
+            saveState(); // ✅ guardar historial del chat
+            break;
+
+        case 'ERROR':
+            console.error('❌ ERROR recibido:', message.mensaje);
+            
+            if (!isAuthenticated) {
+                // Error durante el login
+                showLoginError(message.mensaje || 'Error al autenticar');
+                
+                // ✅ RESETEAR BOTONES
                 resetLoginButtons();
-                if (loginError) { loginError.textContent = ''; loginError.style.display = 'none'; }
-                break;
-            case 'LOGOUT_SUCCESS':
-                resetUI();
-                break;
+            } else {
+                // Error durante operaciones normales
+                mostrarError(message.mensaje);
+            }
+            break;
 
-            case 'BOT_RESPONSE':
-                agregarMensaje(message.mensaje, 'bot');
-                saveState(); // ✅ guardar historial del chat
-                break;
-            case 'ERROR':
-                if (!isAuthenticated) {
-                    showLoginError(message.mensaje || 'Error al autenticar');
-                    resetLoginButtons();
-                } else {
-                    mostrarError(message.mensaje);
-                }
-                break;
-
-            case 'PP_RESULTADO':
-                switch (message.comando) {
-                    case 'INICIAR_SESION':
-                        try {
-                            isAuthenticated = true;
-                            if (loginScreen) loginScreen.style.display = 'none';
-                            if (appScreen) appScreen.style.display = 'flex';
-                            if (userEmailDisplay) {
-                                userEmailDisplay.textContent = (message.resultado && message.resultado.driver)
-                                    ? message.resultado.driver
-                                    : (studentEmailInput && studentEmailInput.value) || '';
-                            }
-                        } catch (e) {}
-                        updateSessionUI(message.resultado || {});
-                        resetLoginButtons();
-                        break;
-
-                    case 'CAMBIAR_ROLES':
-                        if (message.resultado) {
-                            updateSessionUI(message.resultado);  // ✅ refresca emails y timer
-                            pendingTasks = message.resultado.pendingTasks || pendingTasks;
-                            updatePendingTasksList();
-                            const roleModal = document.getElementById('roleModal');
-                            if (roleModal) roleModal.style.display = 'none';
+        case 'PP_RESULTADO':
+            console.log('✅ PP_RESULTADO recibido:', message.comando);
+            
+            switch (message.comando) {
+                case 'INICIAR_SESION':
+                    console.log('✅ Procesando INICIAR_SESION resultado');
+                    
+                    try {
+                        // 1. Marcar como autenticado
+                        isAuthenticated = true;
+                        
+                        // 2. Ocultar pantalla de login
+                        if (loginScreen) {
+                            loginScreen.style.display = 'none';
                         }
-                        break;
-                    case 'OBTENER_ESTADO':
+                        
+                        // 3. Mostrar pantalla de la aplicación
+                        if (appScreen) {
+                            appScreen.style.display = 'flex';
+                        }
+                        
+                        // 4. Mostrar el email del driver
+                        if (userEmailDisplay) {
+                            userEmailDisplay.textContent = message.resultado && message.resultado.driver
+                                ? message.resultado.driver
+                                : (studentEmailInput && studentEmailInput.value) || '';
+                        }
+                        
+                        console.log('✅ Pantallas cambiadas correctamente');
+                    } catch (e) {
+                        console.error('❌ Error al cambiar pantallas:', e);
+                    }
+                    
+                    // 5. Actualizar la UI de la sesión
+                    updateSessionUI(message.resultado || {});
+                    
+                    // ✅ RESETEAR BOTONES
+                    resetLoginButtons();
+                    
+                    console.log('✅ INICIAR_SESION completado');
+                    break;
+
+                case 'CAMBIAR_ROLES':
+                    if (message.resultado) {
+                        updateSessionUI(message.resultado);
+                        pendingTasks = message.resultado.pendingTasks || pendingTasks;
+                        updatePendingTasksList();
+                        const roleModal = document.getElementById('roleModal');
+                        if (roleModal) roleModal.style.display = 'none';
+                    }
+                    break;
+
+                case 'OBTENER_ESTADO':
                     updateSessionUI(message.resultado || {});
                     pendingTasks = message.resultado.pendingTasks || pendingTasks;
                     updatePendingTasksList();
                     break;
 
-                    case 'FINALIZAR_SESION':
-                        updateSessionUI({ sessionActive: false });
-                        break;
+                case 'FINALIZAR_SESION':
+                    updateSessionUI({ sessionActive: false });
+                    break;
 
-                    case 'AGREGAR_TAREA':
-                        pendingTasks = message.resultado || [];
-                        updatePendingTasksList();
-                        break;
+                case 'AGREGAR_TAREA':
+                    pendingTasks = message.resultado || [];
+                    updatePendingTasksList();
+                    break;
 
-                    case 'COMPLETAR_TAREA':
-                        pendingTasks = message.resultado.pendingTasks || [];
-                        updatePendingTasksList();
-                        break;
+                case 'COMPLETAR_TAREA':
+                    pendingTasks = message.resultado.pendingTasks || [];
+                    updatePendingTasksList();
+                    break;
 
-                    case 'EDITAR_TAREA':
-                        pendingTasks = message.resultado.pendingTasks || [];
-                        updatePendingTasksList();
-                        break;
+                case 'EDITAR_TAREA':
+                    pendingTasks = message.resultado.pendingTasks || [];
+                    updatePendingTasksList();
+                    break;
 
-                    case 'ELIMINAR_TAREA':
-                        pendingTasks = message.resultado.pendingTasks || [];
-                        updatePendingTasksList();
-                        break;
-                }
-                break;
+                case 'ELIMINAR_TAREA':
+                    pendingTasks = message.resultado.pendingTasks || [];
+                    updatePendingTasksList();
+                    break;
+            }
+            break;
 
-            case 'PP_ERROR':
-                if (message.comando === 'INICIAR_SESION') {
-                    // Resetear botón
-                    if (startLoginBtn) {
-                        startLoginBtn.disabled = false;
-                        startLoginBtn.textContent = 'Iniciar Sesión';
-                    }
-                    
-                    // Mostrar error
-                    showLoginError(message.mensaje);
-                }
-                break;
+        case 'PP_ERROR':
+            console.error('❌ PP_ERROR recibido:', message);
+            
+            if (message.comando === 'INICIAR_SESION') {
+                // Error al iniciar sesión de pair programming
+                showLoginError(message.mensaje || 'Error al iniciar sesión de pair programming');
+                
+                // ✅ RESETEAR BOTONES
+                resetLoginButtons();
+            } else {
+                // Otros errores de pair programming
+                mostrarError(message.mensaje);
+            }
+            break;
 
-            case 'TIMER_ENDED':
-                const roleModal = document.getElementById('roleModal');
-                if (roleModal) roleModal.style.display = 'flex';
-                break;
+        case 'TIMER_ENDED':
+            const roleModal = document.getElementById('roleModal');
+            if (roleModal) roleModal.style.display = 'flex';
+            break;
 
-            case 'TIMER_WARNING':
-                if (typeof message.timeRemaining === 'number') {
-                    updateTimerDisplay(message.timeRemaining); // ✅ sincroniza visualmente
-                }
-                break;   
-                }
-    });
+        case 'TIMER_WARNING':
+            if (typeof message.timeRemaining === 'number') {
+                updateTimerDisplay(message.timeRemaining);
+            }
+            break;
+    }
+});
                     /* ---------------------- Inicialización ---------------------- */
                     // Solicitar estado inicial al cargar la webview
                     document.addEventListener('DOMContentLoaded', () => {

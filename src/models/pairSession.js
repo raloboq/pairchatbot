@@ -9,7 +9,7 @@ class PairProgrammingSession {
         this.navigator = null;
         this.sessionActive = false;
         this.turnStartTime = null;
-        this.turnDuration = 15 * 60 * 1000; // 15 minutos en milisegundos
+        this.turnDuration = 1 * 60 * 1000; // 15 minutos en milisegundos
         this.timer = null;
         this.sessionTasks = [];
         this.completedTasks = [];
@@ -21,6 +21,10 @@ class PairProgrammingSession {
         // ⭐ NUEVO: Trackear quién es el "active user" (el que controla el teclado)
         this.activeUser = null; // Será el driver actual
     }
+
+    setTimerCallbacks(callbacks) {
+    this.timerCallbacks = callbacks;
+}
     
     /**
      * ⭐ MODIFICADO: Iniciar sesión y establecer activeUser
