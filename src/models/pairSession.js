@@ -30,21 +30,26 @@ class PairProgrammingSession {
      * ⭐ MODIFICADO: Iniciar sesión y establecer activeUser
      */
     startSession(driverEmail, navigatorEmail) {
-        this.driver = driverEmail;
-        this.navigator = navigatorEmail;
-        this.sessionActive = true;
-        this.activeUser = driverEmail; // ⭐ NUEVO: El driver es quien controla
-        this.turnStartTime = Date.now();
-        this.startTimer();
-        
-        return {
-            driver: this.driver,
-            navigator: this.navigator,
-            activeUser: this.activeUser, // ⭐ NUEVO
-            timeRemaining: this.turnDuration,
-            sessionActive: this.sessionActive
-        };
-    }
+    console.log('📝 startSession llamado:', { driverEmail, navigatorEmail });
+    
+    this.driver = driverEmail;
+    this.navigator = navigatorEmail;
+    this.sessionActive = true;
+    this.activeUser = driverEmail;
+    this.turnStartTime = Date.now();
+    
+    // ⚠️ TEMPORAL: Comentar el timer para debugging
+    this.startTimer();
+    console.log('✅ startSession completado');
+    
+    return {
+        driver: this.driver,
+        navigator: this.navigator,
+        activeUser: this.activeUser,
+        timeRemaining: this.turnDuration,
+        sessionActive: this.sessionActive
+    };
+}
     
     /**
      * ⭐ MODIFICADO: Cambiar roles y actualizar activeUser
@@ -127,36 +132,87 @@ class PairProgrammingSession {
     }
     
     startTimer() {
-        this.stopTimer(); // Detener timer anterior si existe
-        
-        const warningTime = this.turnDuration - (2 * 60 * 1000); // 2 minutos antes
-        
-        // Timer para la advertencia
-        const warningTimer = setTimeout(() => {
-            if (this.timerCallbacks.onTimerWarning) {
-                this.timerCallbacks.onTimerWarning();
+    console.log('⏰ startTimer llamado');
+    
+    // Detener timer anterior si existe
+    this.stopTimer();
+    
+    // Calcular tiempo de advertencia (2 minutos antes)
+    const warningTime = this.turnDuration - (2 * 60 * 1000);
+    
+    console.log('⏰ Configurando timers:', {
+        warningTime: warningTime / 1000 + 's',
+        totalTime: this.turnDuration / 1000 + 's',
+        hasCallbacks: !!this.timerCallbacks
+    });
+    
+    // Timer para la advertencia (opcional)
+    if (warningTime > 0) {
+        this.warningTimer = setTimeout(() => {
+            console.log('⏰ Timer warning triggered');
+            if (this.timerCallbacks && typeof this.timerCallbacks.onTimerWarning === 'function') {
+                try {
+                    this.timerCallbacks.onTimerWarning({
+                        message: '⏰ Quedan 2 minutos para cambiar de rol',
+                        timeRemaining: 2 * 60 * 1000
+                    });
+                } catch (error) {
+                    console.error('❌ Error en onTimerWarning:', error);
+                }
+            } else {
+                console.warn('⚠️ onTimerWarning no está configurado');
             }
         }, warningTime);
-        
-        // Timer principal
-        this.timer = setTimeout(() => {
-            clearTimeout(warningTimer);
-            if (this.timerCallbacks.onTimerEnded) {
-                this.timerCallbacks.onTimerEnded();
-            }
-        }, this.turnDuration);
     }
+    
+    // Timer principal
+    this.timer = setTimeout(() => {
+        console.log('⏰ Timer ended - Tiempo terminado!');
+        
+        // Limpiar warning timer si existe
+        if (this.warningTimer) {
+            clearTimeout(this.warningTimer);
+            this.warningTimer = null;
+        }
+        
+        // Llamar callback de fin de turno
+        if (this.timerCallbacks && typeof this.timerCallbacks.onTimerEnded === 'function') {
+            try {
+                this.timerCallbacks.onTimerEnded({
+                    message: '¡Hora de cambiar de rol!'
+                });
+                console.log('✅ onTimerEnded ejecutado correctamente');
+            } catch (error) {
+                console.error('❌ Error en onTimerEnded:', error);
+            }
+        } else {
+            console.error('❌ onTimerEnded no está configurado!');
+            console.log('timerCallbacks:', this.timerCallbacks);
+        }
+    }, this.turnDuration);
+    
+    console.log('✅ Timers configurados correctamente');
+}
     
     restartTimer() {
         this.startTimer();
     }
     
     stopTimer() {
-        if (this.timer) {
-            clearTimeout(this.timer);
-            this.timer = null;
-        }
+    console.log('⏰ stopTimer llamado');
+    
+    if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+        console.log('✅ Timer principal detenido');
     }
+    
+    if (this.warningTimer) {
+        clearTimeout(this.warningTimer);
+        this.warningTimer = null;
+        console.log('✅ Warning timer detenido');
+    }
+}
     
     getRemainingTime() {
         if (!this.turnStartTime) return 0;

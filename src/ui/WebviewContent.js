@@ -645,20 +645,25 @@
                     if (nextBtn) {
                         nextBtn.addEventListener('click', function() {
                             const email = (studentEmailInput && studentEmailInput.value || '').trim();
+                            console.log('🔵 [FRONTEND] Click en Siguiente:', email);
                             if (!email) {
                                 showLoginError('Por favor ingresa tu correo estudiantil');
                                 return;
                             }
 
                             // enviar al host para validar formato y dominio
+                            console.log('🔵 [FRONTEND] Enviando VERIFY_EMAIL...');
                             vscode.postMessage({
                                 type: 'VERIFY_EMAIL',
                                 email: email
                             });
+                            console.log('🔵 [FRONTEND] Mensaje enviado');
 
                             // mostrar loading UI localmente
                             nextBtn.disabled = true;
                             nextBtn.textContent = 'Validando...';
+                            console.log('🔵 [FRONTEND] Botón cambiado a Validando...');
+
                             if (loginError) { loginError.style.display = 'none'; loginError.textContent = ''; }
                         });
                     }
@@ -1109,7 +1114,7 @@
     // ============================================================
 window.addEventListener('message', event => {
     const message = event.data;
-    console.log('📩 Mensaje recibido:', message.type); // Debug temporal
+    console.log('🔵 [FRONTEND] Mensaje recibido del backend:', message.type, message);
     
     switch (message.type) {
         case 'restoreSession':
@@ -1154,7 +1159,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'AUTH_SUCCESS':
-            console.log('✅ AUTH_SUCCESS recibido');
+            console.log('🔵 [FRONTEND] Procesando AUTH_SUCCESS...');
             
             isAuthenticated = true;
             vscode.setState({ isAuthenticated: true });
@@ -1174,6 +1179,7 @@ window.addEventListener('message', event => {
             
             // ✅ RESETEAR BOTONES
             resetLoginButtons();
+            console.log('🔵 [FRONTEND] resetLoginButtons() ejecutado');
             
             // Limpiar mensajes de error
             if (loginError) { 
@@ -1271,7 +1277,7 @@ window.addEventListener('message', event => {
                     break;
 
                 case 'AGREGAR_TAREA':
-                    pendingTasks = message.resultado || [];
+                    pendingTasks = message.resultado.pendingTasks || [];
                     updatePendingTasksList();
                     break;
 
@@ -1308,15 +1314,23 @@ window.addEventListener('message', event => {
             break;
 
         case 'TIMER_ENDED':
-            const roleModal = document.getElementById('roleModal');
-            if (roleModal) roleModal.style.display = 'flex';
-            break;
+    console.log('🔔 TIMER_ENDED recibido en frontend');
+    const roleModal = document.getElementById('roleModal');
+    if (roleModal) {
+        console.log('✅ Mostrando modal de cambio de rol');
+        roleModal.classList.remove('hidden');
+        roleModal.style.display = 'flex';
+    } else {
+        console.error('❌ Modal roleModal no encontrado!');
+    }
+    break;
 
-        case 'TIMER_WARNING':
-            if (typeof message.timeRemaining === 'number') {
-                updateTimerDisplay(message.timeRemaining);
-            }
-            break;
+case 'TIMER_WARNING':
+    console.log('⚠️ TIMER_WARNING recibido:', message.timeRemaining);
+    if (typeof message.timeRemaining === 'number') {
+        updateTimerDisplay(message.timeRemaining);
+    }
+    break;
     }
 });
                     /* ---------------------- Inicialización ---------------------- */

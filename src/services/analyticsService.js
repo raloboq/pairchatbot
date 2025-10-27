@@ -130,7 +130,6 @@ async function trackEvent(eventType, eventData, context) {
             navigator_email = pairSessionState.navigator;
             active_user_email = pairSessionState.activeUser || pairSessionState.driver;
         } else {
-            // Si no hay sesión activa, solo hay un usuario autenticado
             active_user_email = context.globalState.get('authenticatedEmail');
         }
         
@@ -138,19 +137,18 @@ async function trackEvent(eventType, eventData, context) {
         const pairSessionId = context.globalState.get('current-pair-session-id');
         const conversationId = context.globalState.get('current-conversation-id');
         
-        // Obtener información del workspace
         const workspaceInfo = getWorkspaceInfo();
         
         // Crear objeto de evento COMPLETO
         const event = {
             // === IDs ÚNICOS ===
-            event_id: uuidv4(),
+            event_id: uuidv4(), // ✅ CRÍTICO: SIEMPRE generar event_id
             device_id: getDeviceId(context),
             
-            // === USUARIOS - AHORA REGISTRAMOS A AMBOS ===
-            active_user_email: active_user_email, // ⭐ Quién hizo la acción
-            driver_email: driver_email,           // ⭐ Quién es el driver actual
-            navigator_email: navigator_email,     // ⭐ Quién es el navigator actual
+            // === USUARIOS ===
+            active_user_email: active_user_email,
+            driver_email: driver_email,
+            navigator_email: navigator_email,
             
             // === IDs DE CONTEXTO ===
             event_type: eventType,
@@ -171,27 +169,26 @@ async function trackEvent(eventType, eventData, context) {
             data: eventData
         };
         
+        // ✅ VALIDAR que el evento tenga los campos mínimos
+        if (!event.event_id || !event.event_type || !event.timestamp) {
+            console.error('[Analytics] ❌ Evento inválido, faltan campos requeridos:', event);
+            return; // No agregar eventos inválidos
+        }
+        
         // ✅ NUEVO: Manejo especial para CODE_SNAPSHOT
         if (eventType === 'CODE_SNAPSHOT') {
             console.log('[Analytics] 🔍 CODE_SNAPSHOT detectado');
-            console.log('   - Tiene code_content:', !!event.data?.code_content);
-            console.log('   - Tamaño:', event.data?.code_content?.length || 0, 'caracteres');
-            
-            // NO agregar a pendingEvents (es muy grande para globalState)
-            // Enviarlo inmediatamente
             const success = await syncSingleEvent(event, context);
-            
             if (!success) {
-                console.error('[Analytics] ❌ Error al enviar CODE_SNAPSHOT, no se reintentará');
+                console.error('[Analytics] ❌ Error al enviar CODE_SNAPSHOT');
             }
-            
             return;
         }
         
         // Para otros eventos, agregar a la cola normal
         pendingEvents.push(event);
         
-        // Guardar en el estado global (sin CODE_SNAPSHOT que son muy grandes)
+        // Guardar en el estado global
         await context.globalState.update('analytics-pending-events', pendingEvents);
         
         console.log(`[Analytics] Evento registrado: ${eventType} por ${active_user_email || 'unknown'}`);
@@ -214,7 +211,9 @@ function isImportantEvent(eventType) {
         'USER_LOGOUT',
         'PAIR_SESSION_START',
         'PAIR_SESSION_END',
-        'PAIR_ROLE_SWITCH'
+        'PAIR_ROLE_SWITCH',
+        'SESSION_START',
+        'SESSION_END'
     ];
     return importantEvents.includes(eventType);
 }
@@ -279,15 +278,45 @@ async function syncEvents(context) {
     
     try {
         const apiUrl = 'https://ktps.renelobo.com/api/analytics';
-        const eventsToSync = [...pendingEvents];
         
-        console.log(`[Analytics] Sincronizando ${eventsToSync.length} eventos...`);
+        // ✅ FILTRAR Y VALIDAR EVENTOS antes de enviar
+        const eventsToSync = pendingEvents.filter(event => {
+            // Validar estructura completa del evento
+            const hasRequiredFields = 
+                event.event_id && 
+                typeof event.event_id === 'string' &&
+                event.event_type && 
+                event.timestamp &&
+                event.device_id;
+            
+            // Validar que event_id sea un UUID válido (formato correcto)
+            const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(event.event_id);
+            
+            if (!hasRequiredFields) {
+                console.warn('[Analytics] ⚠️ Evento sin campos requeridos descartado:', {
+                    event_id: event.event_id,
+                    event_type: event.event_type,
+                    timestamp: event.timestamp
+                });
+                return false;
+            }
+            
+            if (!isValidUUID) {
+                console.warn('[Analytics] ⚠️ Evento con event_id inválido descartado:', event.event_id);
+                return false;
+            }
+            
+            return true;
+        });
         
-        // ✅ DEBUG: Verificar si hay CODE_SNAPSHOT (no debería)
-        const hasCodeSnapshot = eventsToSync.some(e => e.event_type === 'CODE_SNAPSHOT');
-        if (hasCodeSnapshot) {
-            console.log('[Analytics] ⚠️  WARNING: CODE_SNAPSHOT en batch (no debería pasar)');
+        if (eventsToSync.length === 0) {
+            console.log('[Analytics] No hay eventos válidos para sincronizar, limpiando cola...');
+            pendingEvents = [];
+            await context.globalState.update('analytics-pending-events', []);
+            return;
         }
+        
+        console.log(`[Analytics] Sincronizando ${eventsToSync.length} eventos válidos de ${pendingEvents.length} totales...`);
         
         const response = await axios.post(apiUrl, {
             events: eventsToSync
@@ -295,13 +324,13 @@ async function syncEvents(context) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            timeout: 30000,  // 30 segundos
+            timeout: 30000,
             maxContentLength: Infinity,
             maxBodyLength: Infinity
         });
         
         if (response.status === 200) {
-            // Limpiar eventos sincronizados
+            // Limpiar TODOS los eventos
             pendingEvents = [];
             await context.globalState.update('analytics-pending-events', []);
             console.log(`[Analytics] ✅ ${eventsToSync.length} eventos sincronizados`);
@@ -309,10 +338,17 @@ async function syncEvents(context) {
     } catch (error) {
         console.error('[Analytics] ❌ Error al sincronizar eventos:', error.message);
         
-        // ✅ Log del error completo si es de axios
         if (error.response) {
             console.error('[Analytics] Response status:', error.response.status);
             console.error('[Analytics] Response data:', JSON.stringify(error.response.data).substring(0, 500));
+            
+            // ✅ Si hay error 500 con "Demasiados errores", limpiar todo
+            if (error.response.status === 500 && 
+                error.response.data?.details?.includes('Demasiados errores')) {
+                console.warn('[Analytics] ⚠️ Limpiando TODOS los eventos después de error 500');
+                pendingEvents = [];
+                await context.globalState.update('analytics-pending-events', []);
+            }
         }
         
         // Si hay demasiados eventos pendientes, eliminar los más antiguos

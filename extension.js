@@ -81,6 +81,12 @@ async function activate(context) {
     await context.globalState.update('pairSessionState', undefined);
     await context.globalState.update('chatHistory', undefined);
 
+    // ✅ LIMPIAR EVENTOS PENDIENTES CORRUPTOS AL INICIO
+    console.log('[Extension] Limpiando eventos pendientes al inicio...');
+    await context.globalState.update('analytics-pending-events', []);
+    console.log('[Extension] ✅ Eventos pendientes limpiados');
+
+
     // Inicializar el servicio de analytics
      initializeAnalytics(context);
     
@@ -107,13 +113,21 @@ async function activate(context) {
     registerAnalyticsCommands(context);
     
     // Registrar eventos de telemetría
+    let documentChangeTimeout = null;
     context.subscriptions.push(
-        vscode.workspace.onDidChangeTextDocument(() => {
+    vscode.workspace.onDidChangeTextDocument(() => {
+        // Debounce: solo trackear después de 5 segundos sin cambios
+        if (documentChangeTimeout) {
+            clearTimeout(documentChangeTimeout);
+        }
+        
+        documentChangeTimeout = setTimeout(() => {
             trackEvent('DOCUMENT_CHANGED', {
                 language: vscode.window.activeTextEditor?.document.languageId || 'unknown'
             }, context);
-        })
-    );
+        }, 5000); // 5 segundos de inactividad
+    })
+);
     
     // Iniciar el servicio de captura de código
     // Obtener el intervalo guardado, o usar el valor por defecto (5 minutos)
@@ -173,6 +187,10 @@ async function deactivate(context) {
         trackEvent('EXTENSION_DEACTIVATED', {
             deactivation_time: new Date().toISOString()
         }, context);
+
+        const { syncEvents } = require('./src/services/analyticsService');
+        await syncEvents(context);
+        
         
        console.log('Extensión desactivada');
         

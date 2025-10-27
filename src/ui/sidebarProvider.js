@@ -38,7 +38,7 @@ class SidebarProvider {
             onTimerEnded: this._handleTimerEnded.bind(this),
             onTimerWarning: this._handleTimerWarning.bind(this)
         });
-
+console.log('✅ Timer callbacks configurados');
         trackEvent('SIDEBAR_PROVIDER_INIT', { timestamp: new Date().toISOString() }, this._context);
     }
 
@@ -124,7 +124,9 @@ class SidebarProvider {
                         }
                         break;
                     case 'VERIFY_EMAIL':
-                        await this._verificarEmail(webviewView, message.email);
+                        console.log('🟢 [BACKEND] VERIFY_EMAIL recibido:', message.email);
+    await this._verificarEmail(webviewView, message.email);
+    console.log('🟢 [BACKEND] _verificarEmail completado');
                         break;
                     case 'logoutRequest':
                         await this._clearSession(webviewView);
@@ -188,20 +190,24 @@ class SidebarProvider {
             // Guardar el piloto
             await this._globalState.update('authenticatedEmail', email);
 
-            trackSessionStart(email, this._context);
-            trackEvent('USER_LOGIN', {
-                email,
-                domain: email.split('@')[1],
-                login_time: new Date().toISOString(),
-                role: 'driver'
-            }, this._context);
+console.log('🟢 [BACKEND] Enviando AUTH_SUCCESS al frontend...');
+webviewView.webview.postMessage({
+    type: 'AUTH_SUCCESS',
+    email,
+    role: 'driver'
+});
+console.log('🟢 [BACKEND] AUTH_SUCCESS enviado');
 
-            // Notificar éxito al webview
-            webviewView.webview.postMessage({
-                type: 'AUTH_SUCCESS',
-                email,
-                role: 'driver'
-            });
+// Trackear eventos DESPUÉS (de forma no bloqueante)
+setImmediate(() => {
+    trackSessionStart(email, this._context);
+    trackEvent('USER_LOGIN', {
+        email,
+        domain: email.split('@')[1],
+        login_time: new Date().toISOString(),
+        role: 'driver'
+    }, this._context);
+});
         } catch (error) {
             throw new Error(`Error al verificar email: ${error.message}`);
         }
@@ -241,83 +247,137 @@ class SidebarProvider {
         }
     }
 
-    _handleTimerEnded(notification) {
-        if (this._view && this.pairSession.sessionActive) {
-            this._view.webview.postMessage({
-                type: 'TIMER_ENDED',
-                message: notification.message
-            });
-        }
+   _handleTimerEnded(notification) {
+    console.log('🔔 _handleTimerEnded llamado:', notification);
+    
+    if (this._view && this.pairSession.sessionActive) {
+        console.log('📤 Enviando TIMER_ENDED al frontend');
+        this._view.webview.postMessage({
+            type: 'TIMER_ENDED',
+            message: notification.message
+        });
+        console.log('✅ TIMER_ENDED enviado');
+    } else {
+        console.warn('⚠️ No se puede enviar TIMER_ENDED:', {
+            hasView: !!this._view,
+            sessionActive: this.pairSession.sessionActive
+        });
     }
+}
 
-    _handleTimerWarning(warning) {
-        if (this._view) {
-            this._view.webview.postMessage({
-                type: 'TIMER_WARNING',
-                message: warning.message,
-                timeRemaining: warning.timeRemaining
-            });
-        }
+_handleTimerWarning(warning) {
+    console.log('⚠️ _handleTimerWarning llamado:', warning);
+    
+    if (this._view) {
+        this._view.webview.postMessage({
+            type: 'TIMER_WARNING',
+            message: warning.message,
+            timeRemaining: warning.timeRemaining
+        });
+        console.log('✅ TIMER_WARNING enviado');
     }
+}
 
     _validarDominioEmail(email) {
         return this.ALLOWED_DOMAINS.some(domain => email.toLowerCase().endsWith(domain));
     }
 
-    async _procesarComandoPP(webviewView, comando, params) {
-        const authenticatedEmail = this._globalState.get('authenticatedEmail');
-        if (!authenticatedEmail) {
-            throw new Error('No estás autenticado. Ingresa el correo del piloto primero.');
-        }
+    // ============================================================
+// MÉTODO _procesarComandoPP CORREGIDO
+// Reemplazar en src/ui/sidebarProvider.js
+// ============================================================
 
-        let resultado;
-        switch (comando) {
-            case 'INICIAR_SESION':
-                if (!params.navigatorEmail) {
-                    throw new Error('Falta el correo del navegante.');
-                }
+async _procesarComandoPP(webviewView, comando, params) {
+    const authenticatedEmail = this._globalState.get('authenticatedEmail');
+    if (!authenticatedEmail) {
+        throw new Error('No estás autenticado. Ingresa el correo del piloto primero.');
+    }
 
-                if (!this._validarDominioEmail(params.navigatorEmail)) {
-                    throw new Error('El correo del navegante tiene un dominio no permitido.');
-                }
+    let resultado;
+    switch (comando) {
+        case 'INICIAR_SESION':
+            if (!params.navigatorEmail) {
+                throw new Error('Falta el correo del navegante.');
+            }
 
-                if (params.navigatorEmail.toLowerCase() === authenticatedEmail.toLowerCase()) {
-                    throw new Error('El correo del navegante debe ser diferente al correo del piloto.');
-                }
+            if (!this._validarDominioEmail(params.navigatorEmail)) {
+                throw new Error('El correo del navegante tiene un dominio no permitido.');
+            }
 
+            if (params.navigatorEmail.toLowerCase() === authenticatedEmail.toLowerCase()) {
+                throw new Error('El correo del navegante debe ser diferente al correo del piloto.');
+            }
+
+            // ✅ PRIMERO: Iniciar sesión y obtener resultado
+            resultado = this.pairSession.startSession(authenticatedEmail, params.navigatorEmail);
+
+            // ✅ SEGUNDO: Guardar estado
+            await this._context.globalState.update("pairSessionState", {
+                sessionActive: true,
+                driver: resultado.driver,
+                navigator: resultado.navigator,
+                activeUser: resultado.activeUser,
+                pendingTasks: this.pairSession.sessionTasks,
+                completedTasks: this.pairSession.completedTasks
+            });
+
+            // ✅ TERCERO: Enviar respuesta al frontend
+            webviewView.webview.postMessage({
+                type: 'PP_RESULTADO',
+                comando: 'INICIAR_SESION',
+                resultado
+            });
+
+            // ✅ CUARTO: Trackear eventos de forma NO BLOQUEANTE
+            setImmediate(() => {
                 trackPairProgrammingEvent('SESSION_START', {
                     driver_email: authenticatedEmail,
                     navigator_email: params.navigatorEmail,
                     start_time: new Date().toISOString()
                 }, this._context);
 
-                resultado = this.pairSession.startSession(authenticatedEmail, params.navigatorEmail);
+                setTimeout(() => {
+            const { syncEvents } = require('../services/analyticsService');
+            syncEvents(this._context).catch(err => {
+                console.error('[Analytics] Error al sincronizar:', err);
+            });
+        }, 1000);
+            });
+            break;
 
-                // ⭐ MODIFICADO: Guardar activeUser en el estado
-                await this._context.globalState.update("pairSessionState", {
-                    sessionActive: true,
-                    driver: resultado.driver,
-                    navigator: resultado.navigator,
-                    activeUser: resultado.activeUser,
+        case 'CAMBIAR_ROLES':
+            if (!this.pairSession.sessionActive) {
+                throw new Error('No hay una sesión activa para cambiar roles.');
+            }
+
+            const previousState = this.pairSession.getBothUsers();
+
+            // ✅ PRIMERO: Cambiar roles
+            resultado = this.pairSession.switchRoles();
+
+            // ✅ SEGUNDO: Guardar estado
+            await this._context.globalState.update("pairSessionState", {
+                sessionActive: true,
+                driver: resultado.driver,
+                navigator: resultado.navigator,
+                activeUser: resultado.activeUser,
+                pendingTasks: this.pairSession.sessionTasks,
+                completedTasks: this.pairSession.completedTasks
+            });
+
+            // ✅ TERCERO: Enviar respuesta al frontend
+            webviewView.webview.postMessage({
+                type: "PP_RESULTADO",
+                comando: "CAMBIAR_ROLES",
+                resultado: {
+                    ...resultado,
                     pendingTasks: this.pairSession.sessionTasks,
                     completedTasks: this.pairSession.completedTasks
-                });
-
-                webviewView.webview.postMessage({
-                    type: 'PP_RESULTADO',
-                    comando: 'INICIAR_SESION',
-                    resultado
-                });
-                break;
-
-            case 'CAMBIAR_ROLES':
-                if (!this.pairSession.sessionActive) {
-                    throw new Error('No hay una sesión activa para cambiar roles.');
                 }
+            });
 
-                // ⭐ NUEVO: Guardar estado anterior antes de cambiar
-                const previousState = this.pairSession.getBothUsers();
-
+            // ✅ CUARTO: Trackear eventos de forma NO BLOQUEANTE
+            setImmediate(() => {
                 trackPairProgrammingEvent('ROLE_SWITCH', {
                     previous_driver: previousState.driver,
                     previous_navigator: previousState.navigator,
@@ -325,70 +385,72 @@ class SidebarProvider {
                     switch_time: new Date().toISOString()
                 }, this._context);
 
-                resultado = this.pairSession.switchRoles();
+                setTimeout(() => {
+            const { syncEvents } = require('../services/analyticsService');
+            syncEvents(this._context).catch(err => {
+                console.error('[Analytics] Error al sincronizar:', err);
+            });
+        }, 1000);
+            });
+            break;
 
-                // ⭐ MODIFICADO: Actualizar activeUser en el estado
-                await this._context.globalState.update("pairSessionState", {
-                    sessionActive: true,
-                    driver: resultado.driver,
-                    navigator: resultado.navigator,
-                    activeUser: resultado.activeUser,
-                    pendingTasks: this.pairSession.sessionTasks,
-                    completedTasks: this.pairSession.completedTasks
-                });
+        case 'AGREGAR_TAREA':
+            if (!this.pairSession.sessionActive) {
+                throw new Error('No hay una sesión activa para agregar tareas.');
+            }
+            if (!params.descripcion) {
+                throw new Error('La descripción de la tarea es requerida.');
+            }
 
-                webviewView.webview.postMessage({
-                    type: "PP_RESULTADO",
-                    comando: "CAMBIAR_ROLES",
-                    resultado: {
-                        ...resultado,
-                        pendingTasks: this.pairSession.sessionTasks,
-                        completedTasks: this.pairSession.completedTasks
-                    }
-                });
-                break;
+            const newTask = {
+                id: uuidv4(),
+                description: params.descripcion,
+                createdAt: Date.now(),
+                createdBy: authenticatedEmail
+            };
 
-            case 'AGREGAR_TAREA':
-                if (!this.pairSession.sessionActive) {
-                    throw new Error('No hay una sesión activa para agregar tareas.');
-                }
-                if (!params.descripcion) {
-                    throw new Error('La descripción de la tarea es requerida.');
-                }
+            // ✅ PRIMERO: Agregar tarea
+            this.pairSession.addTask(newTask);
 
-                const newTask = {
-                    id: uuidv4(),
-                    description: params.descripcion,
-                    createdAt: Date.now(),
-                    createdBy: authenticatedEmail
-                };
+            // ✅ SEGUNDO: Preparar resultado
+            resultado = {
+                pendingTasks: this.pairSession.sessionTasks,
+                completedTasks: this.pairSession.completedTasks
+            };
 
-                this.pairSession.addTask(newTask);
-
-                // Trackear evento
+            // ✅ TERCERO: Trackear de forma NO BLOQUEANTE
+            setImmediate(() => {
                 trackTaskEvent('CREATE', {
                     task_id: newTask.id,
                     description: newTask.description,
                     created_by: authenticatedEmail,
                     pair_session_active: true
                 }, this._context);
+            });
+            break;
 
-                resultado = {
-                    pendingTasks: this.pairSession.sessionTasks,
-                    completedTasks: this.pairSession.completedTasks
-                };
-                break;
+        case 'COMPLETAR_TAREA':
+            if (!this.pairSession.sessionActive) {
+                throw new Error('No hay una sesión activa.');
+            }
+            if (!params.taskId) {
+                throw new Error('Se requiere el ID de la tarea.');
+            }
 
-            case 'COMPLETAR_TAREA':
-                if (!this.pairSession.sessionActive) {
-                    throw new Error('No hay una sesión activa.');
-                }
-                if (!params.taskId) {
-                    throw new Error('Se requiere el ID de la tarea.');
-                }
+            const taskToComplete = this.pairSession.sessionTasks.find(t => t.id === params.taskId);
+            
+            // ✅ PRIMERO: Completar tarea
+            this.pairSession.completeTask(params.taskId);
 
-                const taskToComplete = this.pairSession.sessionTasks.find(t => t.id === params.taskId);
-                if (taskToComplete) {
+            // ✅ SEGUNDO: Preparar resultado
+            resultado = {
+                pendingTasks: this.pairSession.sessionTasks,
+                completedTasks: this.pairSession.completedTasks
+            };
+
+            // ✅ TERCERO: Trackear de forma NO BLOQUEANTE
+            if (taskToComplete) {
+                setImmediate(() => {
                     trackTaskEvent('COMPLETE', {
                         task_id: params.taskId,
                         description: taskToComplete.description,
@@ -396,123 +458,153 @@ class SidebarProvider {
                         time_to_complete: Date.now() - new Date(taskToComplete.createdAt).getTime(),
                         pair_session_active: true
                     }, this._context);
-                }
+                });
+            }
+            break;
 
-                this.pairSession.completeTask(params.taskId);
+        case 'EDITAR_TAREA':
+            console.log('🔍 EDITAR_TAREA recibido:', params);
+            if (!this.pairSession.sessionActive) {
+                throw new Error('No hay una sesión activa para editar tareas.');
+            }
+            if (!params.taskId || !params.descripcion) {
+                throw new Error('Se requiere el ID y la nueva descripción.');
+            }
 
-                resultado = {
-                    pendingTasks: this.pairSession.sessionTasks,
-                    completedTasks: this.pairSession.completedTasks
-                };
-                break;
+            // ✅ PRIMERO: Editar tarea
+            this.pairSession.editTask(params.taskId, params.descripcion);
 
-            case 'EDITAR_TAREA':
-                console.log('🔍 EDITAR_TAREA recibido:', params);
-                if (!this.pairSession.sessionActive) {
-                    throw new Error('No hay una sesión activa para editar tareas.');
-                }
-                if (!params.taskId || !params.descripcion) {
-                    throw new Error('Se requiere el ID y la nueva descripción.');
-                }
+            // ✅ SEGUNDO: Preparar resultado
+            resultado = {
+                pendingTasks: this.pairSession.sessionTasks,
+                completedTasks: this.pairSession.completedTasks
+            };
 
+            // ✅ TERCERO: Trackear de forma NO BLOQUEANTE
+            setImmediate(() => {
                 trackTaskEvent('EDIT', {
                     task_id: params.taskId,
                     new_description: params.descripcion,
                     edited_by: authenticatedEmail,
                     pair_session_active: true
                 }, this._context);
+            });
+            break;
 
-                this.pairSession.editTask(params.taskId, params.descripcion);
+        case 'ELIMINAR_TAREA':
+            if (!this.pairSession.sessionActive) {
+                throw new Error('No hay una sesión activa para eliminar tareas.');
+            }
+            if (!params.taskId) {
+                throw new Error('Se requiere el ID de la tarea.');
+            }
 
-                resultado = {
-                    pendingTasks: this.pairSession.sessionTasks,
-                    completedTasks: this.pairSession.completedTasks
-                };
-                break;
+            const taskToDelete = this.pairSession.sessionTasks.find(t => t.id === params.taskId);
+            
+            // ✅ PRIMERO: Eliminar tarea
+            this.pairSession.deleteTask(params.taskId);
 
-            case 'ELIMINAR_TAREA':
-                if (!this.pairSession.sessionActive) {
-                    throw new Error('No hay una sesión activa para eliminar tareas.');
-                }
-                if (!params.taskId) {
-                    throw new Error('Se requiere el ID de la tarea.');
-                }
+            // ✅ SEGUNDO: Preparar resultado
+            resultado = {
+                pendingTasks: this.pairSession.sessionTasks,
+                completedTasks: this.pairSession.completedTasks
+            };
 
-                const taskToDelete = this.pairSession.sessionTasks.find(t => t.id === params.taskId);
-                if (taskToDelete) {
+            // ✅ TERCERO: Trackear de forma NO BLOQUEANTE
+            if (taskToDelete) {
+                setImmediate(() => {
                     trackTaskEvent('DELETE', {
                         task_id: params.taskId,
                         description: taskToDelete.description,
                         deleted_by: authenticatedEmail,
                         pair_session_active: true
                     }, this._context);
-                }
+                });
+            }
+            break;
 
-                this.pairSession.deleteTask(params.taskId);
-
-                resultado = {
-                    pendingTasks: this.pairSession.sessionTasks,
-                    completedTasks: this.pairSession.completedTasks
-                };
-                break;
-
-            case 'OBTENER_ESTADO':
-                resultado = this.pairSession.getSessionStatus();
-                if (this.pairSession.sessionActive) {
+        case 'OBTENER_ESTADO':
+            resultado = this.pairSession.getSessionStatus();
+            
+            // ✅ Trackear de forma NO BLOQUEANTE
+            if (this.pairSession.sessionActive) {
+                setImmediate(() => {
                     trackEvent('PAIR_SESSION_STATUS_CHECK', {
                         driver: this.pairSession.driver,
                         navigator: this.pairSession.navigator,
                         session_duration_so_far: Date.now() - this.pairSession.turnStartTime
                     }, this._context);
-                }
-                break;
+                });
+            }
+            break;
 
-            case 'FINALIZAR_SESION':
-                if (!this.pairSession.sessionActive) {
-                    throw new Error('No hay una sesión activa para finalizar.');
-                }
+        case 'FINALIZAR_SESION':
+            if (!this.pairSession.sessionActive) {
+                throw new Error('No hay una sesión activa para finalizar.');
+            }
 
+            const driverEmail = this.pairSession.driver;
+            const navigatorEmail = this.pairSession.navigator;
+            const completedCount = this.pairSession.completedTasks.length;
+            const pendingCount = this.pairSession.sessionTasks.length;
+
+            // ✅ PRIMERO: Finalizar sesión
+            resultado = this.pairSession.endSession();
+
+            // ✅ SEGUNDO: Limpiar estado
+            await this._context.globalState.update("pairSessionState", {
+                sessionActive: false,
+                driver: null,
+                navigator: null,
+                activeUser: null,
+                pendingTasks: [],
+                completedTasks: []
+            });
+
+            // ✅ TERCERO: Enviar respuesta al frontend
+            webviewView.webview.postMessage({
+                type: 'PP_RESULTADO',
+                comando: 'FINALIZAR_SESION',
+                resultado: { sessionActive: false }
+            });
+
+            // ✅ CUARTO: Trackear de forma NO BLOQUEANTE
+            setImmediate(() => {
                 trackPairProgrammingEvent('SESSION_END', {
-                    driver_email: this.pairSession.driver,
-                    navigator_email: this.pairSession.navigator,
+                    driver_email: driverEmail,
+                    navigator_email: navigatorEmail,
                     end_time: new Date().toISOString(),
-                    tasks_completed: this.pairSession.completedTasks.length,
-                    tasks_pending: this.pairSession.sessionTasks.length
+                    tasks_completed: completedCount,
+                    tasks_pending: pendingCount
                 }, this._context);
+            });
 
-                resultado = this.pairSession.endSession();
+            setTimeout(() => {
+            const { syncEvents } = require('../services/analyticsService');
+            syncEvents(this._context).catch(err => {
+                console.error('[Analytics] Error al sincronizar:', err);
+            });
+        }, 1000);
+            break;
 
-                await this._context.globalState.update("pairSessionState", {
-                    sessionActive: false,
-                    driver: null,
-                    navigator: null,
-                    activeUser: null,
-                    pendingTasks: [],
-                    completedTasks: []
-                });
+        default:
+            throw new Error(`Comando desconocido: ${comando}`);
+    }
 
-                webviewView.webview.postMessage({
-                    type: 'PP_RESULTADO',
-                    comando: 'FINALIZAR_SESION',
-                    resultado: { sessionActive: false }
-                });
-                break;
+    // ✅ Guardar estado actualizado después de cada acción
+    await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
 
-            default:
-                throw new Error(`Comando desconocido: ${comando}`);
-        }
-
-        // ✅ Guardar estado actualizado después de cada acción
-        await this._context.globalState.update("pairSessionState", this.pairSession.getSessionStatus());
-
+    // ✅ Enviar respuesta al frontend (si no se envió antes)
+    if (comando !== 'INICIAR_SESION' && comando !== 'CAMBIAR_ROLES' && comando !== 'FINALIZAR_SESION') {
         webviewView.webview.postMessage({
             type: 'PP_RESULTADO',
             comando,
             resultado
         });
-
-        return resultado;
     }
+
+    return resultado;
+}
 
     async _procesarMensaje(webviewView, message) {
         try {
